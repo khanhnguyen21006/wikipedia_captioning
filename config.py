@@ -8,6 +8,9 @@ def _loss_names(d):
 		"lm": 0,
 		"wd": 0,
 		"div": 0,
+		"pe": 0,
+		"mmpe": 0,
+		"vib": 0,
 	}
 	ret.update(d)
 	return ret
@@ -26,31 +29,43 @@ def config():
 	batch_size = 256  # accumulated batch size.
 
 	# default config values
-	image_encoder = 'resnet152'
-	text_encoder = 'roberta'
-	text_decoder = 'gpt2'
+	image_encoder = 'resnet152'  # mandatory
+	text_encoder = None  # optional 'roberta'|'gru'|'sbert'|'st5'|'t5-adapter'
+	text_decoder = None  # optional 'gpt-2'|'t5'
 	embed_dim = 768  # == decoder_dim, since text decoder has no linear projection
 	image_encoder_finetune = False
 	text_encoder_finetune = False
 	text_decoder_finetune = False
 	text_max_len = 512
 	text_embed = 'glove'  # for RNNs
+	text_dim = 300  # for RNNs
 
-	n_embeds = 8
+	n_embed = 8
+	prob_embed = False
+	pe_scale = 1.5
+	pe_shift = 1.
 	wd_lambda = 1
 	div_lambda = 1
+	vib_lambda = 1
+	mmpe_l2_lambda = 1
 
 	# Optimizer Setting
 	optimizer = "adamp"
 	learning_rate = 1e-4
-	weight_decay = 0.01	 # diff
+	weight_decay = 0.01
+	lr_multiplier = 1.
 	lr_scheduler = 'with_warmup'
 	max_epoch = 100
 	end_lr = 0
 	warmup_steps = 2500
 	decay_power = 1
 	gradient_clip_val = 0
-	run_retrieval = False
+	run_caption = False
+	run_retrieve = False
+	retrieval_testset = ''
+	source_to_target = {'source': [], 'target': ''}
+	multi_query = None  # 'addition'|'multiplication'
+	eval_method = ''
 
 	# PL Trainer Setting
 	ckpt_path = None
@@ -62,7 +77,7 @@ def config():
 	save_top_k = 1
 	num_sanity_val_steps = 2
 
-	# below params varies with the environment
+	# Environment hyperparams
 	vocab_path = './modules/vocab/wit_vocab_100.pkl'
 	cache_dir = './.cache'
 	result_dir = "result"
@@ -104,92 +119,122 @@ def prelim():
 	expt_name = "prelim"
 	losses = _loss_names({"lm": 1}) # , "wd": 1, "div": 1
 
-	# text_encoder = 't5-adapter'
-	# text_decoder = 't5-adapter'
-	# text_encoder_finetune = True
-	# precision = 32
-
-	# n_embeds = 16
-	# wd_lambda = 1
-	# div_lambda = 1
-
-	# text_encoder = 'roberta'
-	# text_decoder = 'gpt2-adapter'
-	# text_decoder_finetune = True
-	# # precision = 32
-
-	# n_embeds = 0
-	# wd_lambda = 1
-	# div_lambda = 1
-
-	# text_encoder = 't5++'
-	# text_decoder = 't5++'
-	# text_decoder_finetune = True
-	# precision = 32
-
-	# n_embeds = 0
-	# wd_lambda = 1
-	# div_lambda = 1
-
-	text_encoder = 'gpt2++'
-	text_decoder = 'gpt2++'
+	text_encoder = None
+	text_decoder = 't5++'
 	text_decoder_finetune = True
-	# precision = 32
+	precision = 32
 
-	n_embeds = 0
+	n_embed = 0
 	wd_lambda = 1
 	div_lambda = 1
 
-	# transform = 'resnet_h5py'
-	# text_max_len = 512
-	# per_gpu_batchsize = 32
+	# text_encoder = None
+	# text_decoder = 'gpt2++'
+	# text_decoder_finetune = True
+	# # precision = 32
 
-	
+	# n_embed = 0
+	# wd_lambda = 1
+	# div_lambda = 1
+
+	transform = 'resnet_h5py'
+	text_max_len = 512
+	per_gpu_batchsize = 32
 
 
 @ex.named_config
 def eval():
-	expt_name = "eval" 
+	expt_name = "eval"
 	# load_path = ''
 	test = True
+	# run_caption = True
+
+	# run_retrieve = True
+	# retrieval_testset = 'test_1k_RET'
+	# multi_query = None
+	# prob_embed = True
+	# source_to_target = {'source': ['image'], 'target': 'section'}
+	# eval_method = 'matching_prob'
+
+	run_retrieve = True
+	retrieval_testset = 'test_1k_RET'
+	multi_query = 'addition'
+	prob_embed = True
+	source_to_target = {'source': ['image', 'description'], 'target': 'section'}
+	eval_method = 'matching_prob'
 
 
 @ex.named_config
 def gpt2_adapter():
 	expt_name = "gpt2_adapter"
 	losses = _loss_names({"lm": 1, "wd": 1, "div": 1})
-	image_encoder = 'openai/clip-vit-base-patch16'
+	image_encoder = 'openai/clip-vit-base-patch32'
 	text_encoder = 'roberta'
 	text_decoder = 'gpt2-adapter'
 	image_encoder_finetune = False
 	text_encoder_finetune = False
 	text_decoder_finetune = False
 
-	n_embeds = 8
+	n_embed = 8
 	wd_lambda = 10
 	div_lambda = 10
 
 	transform = 'clip_vit_h5py'
 	text_max_len = 512
 	per_gpu_batchsize = 32
+
+	lr_multiplier = 1.
 
 
 @ex.named_config
 def t5_adapter():
 	expt_name = "t5_adapter"
 	losses = _loss_names({"lm": 1, "wd": 1, "div": 1})
-	image_encoder = 'openai/clip-vit-base-patch16'
+	image_encoder = 'openai/clip-vit-base-patch32'
 	text_encoder = 't5-adapter'
-	text_decoder = 't5-adapter'
+	text_decoder = None
 	image_encoder_finetune = False
 	text_encoder_finetune = False
 	text_decoder_finetune = False
 	precision = 32
 
-	n_embeds = 8
+	n_embed = 8
 	wd_lambda = 10
 	div_lambda = 10
 
 	transform = 'clip_vit_h5py'
 	text_max_len = 512
 	per_gpu_batchsize = 32
+
+	lr_multiplier = 1.
+
+@ex.named_config
+def pcme():
+	expt_name = "pcme"
+	losses = _loss_names({"pe": 1, "vib": 1})
+	image_encoder = 'resnet152'
+	text_encoder = 'gru'
+	text_decoder = None
+	image_encoder_finetune = False
+	text_encoder_finetune = False
+	text_decoder_finetune = False
+	embed_dim = 1024
+
+	n_embed = 8
+	prob_embed = True
+	pe_scale = 1.5
+	pe_shift = 1.
+	vib_lambda = 0.00001
+	multi_query = 'addition'
+	source_to_target = {'source': ['image', 'description'], 'target': 'section'}
+	# source_to_target = {'source': ['image'], 'target': 'section'}
+
+	optimizer = "adamp"
+	learning_rate = 2e-4
+	weight_decay = 0.0001
+	lr_scheduler = 'cosine_annealing'
+
+	transform = 'resnet_h5py'
+	text_max_len = 512
+	max_epoch = 30
+	per_gpu_batchsize = 128

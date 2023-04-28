@@ -2,6 +2,7 @@ import os
 import copy
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.utilities.model_summary import ModelSummary
 
 from config import ex
 
@@ -20,6 +21,11 @@ def main(_config):
     data_module = DataModule(_config, dist=_config['distributed'])
 
     os.makedirs(_config["result_dir"], exist_ok=True)
+    logger = pl_loggers.TensorBoardLogger(
+        _config["result_dir"],
+        name=f'{exp_name}_seed{_config["seed"]}',
+    )
+
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         save_top_k=_config["save_top_k"],
         verbose=True,
@@ -27,13 +33,9 @@ def main(_config):
         mode="min",
         save_last=True,
     )
-    logger = pl_loggers.TensorBoardLogger(
-        _config["result_dir"],
-        name=f'{exp_name}_seed{_config["seed"]}',
-    )
-
     lr_callback = pl.callbacks.LearningRateMonitor(logging_interval="step")
-    callbacks = [checkpoint_callback, lr_callback]
+    summary_callback = pl.callbacks.ModelSummary(max_depth=2)
+    callbacks = [checkpoint_callback, lr_callback, summary_callback]
 
     num_gpus = (
         _config["num_gpus"]
@@ -53,6 +55,7 @@ def main(_config):
         benchmark=True,
         deterministic=True,
         max_epochs=_config["max_epoch"],
+        enable_model_summary=False,
         callbacks=callbacks,
         logger=logger,
         replace_sampler_ddp=False,

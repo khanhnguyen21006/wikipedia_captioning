@@ -7,13 +7,10 @@ from pycocoevalcap.rouge.rouge import Rouge
 
 import re
 import os
-import sys
 import json
-import glob
 import string
 import types
 import hashlib
-import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
@@ -21,16 +18,11 @@ from collections import defaultdict
 import spacy
 from spacy.tokens import Doc
 from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
 
 nlp = spacy.load("en_core_web_sm")
 
-def utility_wrapup(outs, _config):
-	caption_wrapup(outs, _config)
-	if _config['run_retrieval']:
-		retrieve_wrapup(outs, _config)
-
 def caption_wrapup(outs, _config):
+	import pudb; pu.db
 	rank = torch.distributed.get_rank()
 
 	path = os.path.join(_config['result_dir'], 'inference', _config['expt_name'], 'caption')
@@ -115,6 +107,22 @@ def _stat(self, hypothesis_str, reference_list):
 	self.meteor_p.stdin.flush()
 	return self.meteor_p.stdout.readline().decode().strip()
 
+# https://stackoverflow.com/questions/19790188/expanding-english-language-contractions-in-python
+def decontracted(phrase):
+    # specific
+    phrase = re.sub(r"won\s*[\’\'\"]+\s*t", "will not", phrase)
+    phrase = re.sub(r"can\s*[\’\'\"]+\s*t", "can not", phrase)
+    # general
+    phrase = re.sub(r"n\s*[\’\'\"]+\s*t", " not", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*re", " are", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*s", " is", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*d", " would", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*ll", " will", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*t", " not", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*ve", " have", phrase)
+    phrase = re.sub(r"\s*[\’\'\"]+\s*m", " am", phrase)
+    return phrase
+
 def spacize(text):
 	key = hashlib.sha256(text.encode('utf-8')).hexdigest()
 	return Doc(nlp.vocab).from_bytes(nlp(text).to_bytes())
@@ -176,24 +184,24 @@ def all_metrics_tell(jsonl, data_folder):
 	# Use Tell's output as reference
 	tell = dict()
 	tell_jsonl = list(open(os.path.join(data_folder, 'generations.jsonl'), "r"))
-	for tell_jl in tqdm(tell_jsonl):
-		tell_jl = json.loads(tell_jl)
+	for tell_jline in tqdm(tell_jsonl):
+		tell_jline = json.loads(tell_jline)
 		tell.update(
 			{
-				tell_jl['image_path'].split('/')[-1].split('.')[0]: {
-					'caption': tell_jl['raw_caption'],
-					# 'caption_NEs': tell_jl['caption_ents'],
+				tell_jline['image_path'].split('/')[-1].split('.')[0]: {
+					'caption': tell_jline['raw_caption'],
+					# 'caption_NEs': tell_jline['caption_ents'],
 				}
 			}
 		)
 
-	for jl in tqdm(jsonl):
-		jl = json.loads(jl)
-		if jl['image_id'] not in tell:
+	for jline in tqdm(jsonl):
+		jline = json.loads(jline)
+		if jline['image_id'] not in tell:
 			continue
 
-		caption = jl['caption']
-		generated = jl['generated']
+		caption = jline['caption']
+		generated = jline['generated']
 		caption = re.sub(r'[^\w\s]', '', caption)
 		try:
 			generated = re.sub(r'[^\w\s]', '', generated)
@@ -208,8 +216,8 @@ def all_metrics_tell(jsonl, data_folder):
 		eval_line += ' ||| {}'.format(stat)
 		count += 1
 
-		c_doc = spacize(jl['caption'])
-		g_doc = nlp(jl['generated'])
+		c_doc = spacize(jline['caption'])
+		g_doc = nlp(jline['generated'])
 		caption_ents = get_entity(c_doc)
 		generated_ents = get_entity(g_doc)
 

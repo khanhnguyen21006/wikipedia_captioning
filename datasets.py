@@ -1,5 +1,4 @@
 import torch
-from torch.nn.utils.rnn import pad_sequence
 
 import abc
 import h5py
@@ -7,12 +6,9 @@ import json
 import os
 import re
 
-from nltk.tokenize import word_tokenize
 from pycocotools.coco import COCO
 from PIL import Image
 
-from modules.model_pool import *
-from utils import merge_padded_tensors
 
 def build_context(_batch, k):
     _bs = len(list(_batch.values())[0])
@@ -45,66 +41,20 @@ class BaseDataset(abc.ABC, torch.utils.data.Dataset):
 
         dict_batch['image'] = torch.stack(dict_batch['image'])
         for k in self.hparams['context_keys']:
-            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = \
-                    self.tokenize(build_context(dict_batch, k), self.eTokenizer, self.hparams['text_ml'])        
+            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['enc_tokenizer'].tokenize(
+                    build_context(dict_batch, k), self.hparams['text_max_len']
+                )
         for k in self.hparams['target_keys']:
-            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = \
-                                        self.tokenize(build_context(dict_batch, k), self.dTokenizer, 100)
+            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['dec_tokenizer'].tokenize(
+                    build_context(dict_batch, k), 100
+                )
         return dict_batch
-
-    def tokenize(self, texts, tokenizer, max_len):
-        if isinstance(tokenizer, GPT2Tokenizer):
-            sos, eos = tokenizer.bos_token, tokenizer.eos_token
-            if any(isinstance(i, list) for i in texts):
-                sep, pad = tokenizer.sep_token, tokenizer.pad_token_id
-                cap_encodings = tokenizer([f'{sep}{t}{eos}' if t else sep for t in texts[-1]], 
-                                    return_tensors="pt", padding="longest", truncation=True, max_length=100)
-                cntx = [sos + ''.join([f'{t_}' for t_ in t]) for t in zip(*texts[:-1])]
-                cntx_encodings = tokenizer(cntx, return_tensors="pt", truncation=True, padding="longest", 
-                                                max_length=(max_len-len(cap_encodings['input_ids'][0])))
-                tokens = merge_padded_tensors(cntx_encodings['input_ids'], cap_encodings['input_ids'], pad)
-                cntx_masks = cntx_encodings['attention_mask'] * (-100)
-                masks = merge_padded_tensors(cntx_masks, cap_encodings['attention_mask'])
-            else:
-                texts = [f'{sos}{t}{eos}' if t else sos for t in texts]
-                encodings = tokenizer(texts, return_tensors="pt", padding="longest",\
-                                                                 truncation=True, max_length=max_len)
-                tokens, masks = encodings['input_ids'], encodings['attention_mask']
-        elif isinstance(tokenizer, T5Tokenizer):
-            encodings = tokenizer(texts, return_tensors="pt", padding="longest",\
-                                                                 truncation=True, max_length=max_len)
-            tokens, masks = encodings['input_ids'], encodings['attention_mask']
-        elif isinstance(tokenizer, RoBERTaTokenizer):
-            tokens = []
-            for text in texts:
-                bpe_tokens = []
-                for t in tokenizer.bpe.re.findall(tokenizer.bpe.pat, text):
-                    bpe_t = ''.join(tokenizer.bpe.byte_encoder[b] for b in t.encode('utf-8'))
-                    bpe_ids = [tokenizer.bpe.encoder[bt] for bt in tokenizer.bpe.bpe(bpe_t).split(' ')]
-                    bpe_tokens.extend(bpe_ids)
-                concat = ' '.join(map(str, bpe_tokens))
-                words = re.compile(r"\s+").sub(" ", concat).strip().split()
-                words = ['<s>'] + words[:max_len - 2] + ['</s>']
-                tokens.append(torch.Tensor([tokenizer.sd.indices[w] for w in words]))
-            tokens = pad_sequence(tokens, batch_first=True, padding_value=tokenizer.sd.indices['<pad>']).long()
-            masks = (tokens != tokenizer.sd.indices['<pad>']).long()
-        elif isinstance(tokenizer, Vocabulary):
-            tokens = []
-            for text in texts:
-                words = word_tokenize(str(text).lower())
-                tokenized = [tokenizer('<start>')] + [tokenizer(w) for w in words] + [tokenizer('<end>')]
-                tokens.append(torch.Tensor(tokenized))
-            tokens = pad_sequence(tokens, batch_first=True, padding_value=tokenizer('<pad>')).long()
-            masks = (tokens != tokenizer('<pad>')).long()
-        else:
-            raise f"{tokenizer.__class__} Tokenizer is not supported."    
-        return tokens, masks
 
 @BaseDataset.register
 class WitDataset(BaseDataset):
     def __init__(self, split, *args, **kwargs):
         self.split = split
-        assert split in {'train', 'val', 'test'}
+        assert split in {'train', 'val', 'test', 'test_1k_RET', 'test_5k_RET'}
 
         super().__init__(*args, **kwargs)
 

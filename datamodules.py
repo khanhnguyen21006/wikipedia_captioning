@@ -5,7 +5,6 @@ from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
 from modules.data_pool import *
-from modules.model_pool import *
 
 from functools import partial
 
@@ -21,8 +20,6 @@ class DataModule(LightningDataModule):
 
         self.transforms = get_transform(_config["transform"])
         self.collate_hparams = get_collate_hparams(_config)
-        self.enc_tokenizer = get_tokenizer(_config["text_encoder"])
-        self.dec_tokenizer = get_tokenizer(_config["text_decoder"])
 
         self.collate_fn = None
         
@@ -54,7 +51,7 @@ class DataModule(LightningDataModule):
                 self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False)
                 self.test_sampler = DistributedSampler(self.test_dataset, shuffle=False)
             else:
-                self.train_sampler = SequentialSampler(self.train_dataset)
+                self.train_sampler = RandomSampler(self.train_dataset)
                 self.val_sampler = None
                 self.test_sampler = None
 
@@ -94,6 +91,14 @@ class DataModule(LightningDataModule):
     def predict_dataloader(self) -> EVAL_DATALOADERS:
         pass
 
+    def get_ret_dset(self, split):
+        return self.dataset_cls(
+            split=split,
+            d_folder=os.path.join(self.data_folder, 'wiki_retrieval'),
+            d_name=self.dataset,
+            transform=self.transforms['train']
+        )
+
     def set_train_dataset(self):
         self.train_dataset = self.dataset_cls(
             split="train",
@@ -102,8 +107,6 @@ class DataModule(LightningDataModule):
             transform=self.transforms['train']
         )
         self.train_dataset.hparams = self.collate_hparams
-        self.train_dataset.eTokenizer = self.enc_tokenizer
-        self.train_dataset.dTokenizer = self.dec_tokenizer
 
     def set_val_dataset(self):
         self.val_dataset = self.dataset_cls(
@@ -113,9 +116,6 @@ class DataModule(LightningDataModule):
             transform=self.transforms['val']
         )
         self.val_dataset.hparams = self.collate_hparams
-        self.val_dataset.eTokenizer = self.enc_tokenizer
-        self.val_dataset.dTokenizer = self.dec_tokenizer
-
 
     def set_test_dataset(self):
         self.test_dataset = self.dataset_cls(
@@ -125,5 +125,3 @@ class DataModule(LightningDataModule):
             transform=self.transforms['val']
         )
         self.test_dataset.hparams = self.collate_hparams
-        self.test_dataset.eTokenizer = self.enc_tokenizer
-        self.test_dataset.dTokenizer = self.dec_tokenizer

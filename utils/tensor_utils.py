@@ -1,4 +1,99 @@
 import torch
+import numpy as np
+
+def batchwise_cosine_distance(x, y, eps=1e-6):
+    if len(x.size()) != 3 or len(y.size()) != 3:
+        raise RuntimeError('expected: 3-dim tensors, got: {}, {}'.format(x.size(), y.size()))
+
+    if x.size(0) == y.size(0):
+        bs = x.size(0)
+    elif x.size(0) == 1:
+        bs = y.size(0)
+    elif y.size(0) == 1:
+        bs = x.size(0)
+    else:
+        raise RuntimeError(f'x ({x.size()}) and y ({y.size()}) dimensionalities are non-broadcastable.')
+
+    x = x.unsqueeze(1)
+    y = y.unsqueeze(2)
+    return torch.sqrt(((x - y) ** 2).sum(-1) + eps).view(bs, -1)
+
+def pairwise_sampling(anchors, candidates):
+    N = len(anchors)
+    if len(anchors) != len(candidates):
+        raise RuntimeError('# anchors ({}) != # candidates ({})'.format(anchors.shape, candidates.shape))
+    anchor_idx, selected_idx, matched = full_sampling(N)
+
+    anchor_idx = torch.from_numpy(np.array(anchor_idx)).long()
+    selected_idx = torch.from_numpy(np.array(selected_idx)).long()
+    matched = torch.from_numpy(np.array(matched)).float()
+
+    anchor_idx = anchor_idx.to(anchors.device)
+    selected_idx = selected_idx.to(anchors.device)
+    matched = matched.to(anchors.device)
+
+    anchors = anchors[anchor_idx]
+    selected = candidates[selected_idx]
+
+    cdist = batchwise_cosine_distance(anchors, selected)
+    return cdist, matched
+
+def full_sampling(n):
+    candidates = []
+    selected = []
+    matched = []
+    for i in range(n):
+        for j in range(n):
+            candidates.append(i)
+            selected.append(j)
+            if i == j:
+                matched.append(1)
+            else:
+                matched.append(-1)
+    return candidates, selected, matched
+
+def sample_gaussian_tensors(mu, logsig, n):
+    eps = torch.randn(mu.size(0), n, mu.size(1), dtype=mu.dtype, device=mu.device)
+    samples = eps.mul(torch.exp(logsig.unsqueeze(1))).add_(mu.unsqueeze(1))
+    return samples
+
+def product_2_gaussians(mu1, logsig1, mu2, logsig2):
+    if len(mu1.shape) == 1:
+        mu1 = mu1.unsqueeze(0)
+    if len(logsig1.shape) == 1:
+        logsig1 = logsig1.unsqueeze(0)
+    if len(mu2.shape) == 1:
+        mu2 = mu2.unsqueeze(0)
+    if len(logsig2.shape) == 1:
+        logsig2 = logsig2.unsqueeze(0)
+    logsig1 = torch.exp(logsig1)
+    logsig2 = torch.exp(logsig2)
+
+    target_mu = mu2
+    target_logsig = logsig2
+
+    inv_logsig1 = 1 / logsig1
+    inv_target_logsig = 1 / target_logsig
+    C = torch.diag_embed(1 / (inv_logsig1 + inv_target_logsig))
+    c = torch.matmul(C, torch.matmul(torch.diag_embed(inv_logsig1), mu1[:, :, None]) + torch.matmul(
+        torch.diag_embed(inv_target_logsig), target_mu[:, :, None])).squeeze()
+    log_Z = MultilogsigiateNormal(target_mu, torch.diag_embed(logsig1 + target_logsig + 1e-6)).log_prob(mu1)
+    C = torch.diagonal(C, dim1=-2, dim2=-1)
+    C = torch.log(C)
+
+    return c, C, log_Z
+
+def addition_2_gaussians(mu1, logsig1, mu2, logsig2):
+    logsig1 = torch.exp(logsig1)
+    logsig2 = torch.exp(logsig2)
+    return mu1 + mu2, torch.log(logsig1 + logsig2), torch.zeros(mu1.shape[0], device='cuda')
+
+def trace(x):
+    b, m, n = x.size()
+    assert m == n
+    mask = torch.eye(n, dtype=torch.bool, device=x.device).unsqueeze(0).expand_as(x)
+    trace = x.masked_select(mask).contiguous().view(b, n).sum(dim=-1, keepdim=False)
+    return trace
 
 def merge_padded_tensors(x, y, pad=0):
     x = x.masked_fill(x == pad, 0)
@@ -22,9 +117,13 @@ def length_to_mask(length, max_len=None):
 
 def find_index(x, y):
     tmp_idx = torch.bincount((x != 0).nonzero()[:, 0], minlength=x.shape[0])
-
-    # Create a ones tensor
     pad_ones = torch.ones(y.size(0), y.size(1) - 1)
-
     update_index = torch.cat([tmp_idx.unsqueeze(-1), pad_ones.long()], dim=-1)
     return torch.cumsum(update_index, dim=1)
+
+def distributed_gather(x):
+    ws = torch.distributed.get_world_size()
+    b = [torch.zeros_like(x) for _ in range(ws)]
+    torch.distributed.all_gather(b, x)
+    b = torch.cat(b, dim=0)
+    return b

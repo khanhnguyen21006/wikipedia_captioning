@@ -8,7 +8,10 @@ from transformers import (
 )
 from adamp import AdamP
 
-from .metrics import Accuracy, Scalar
+from .metric_utils import Accuracy, Scalar
+
+GPT2_ADAPTER_LAYERS = ['crossattention', 'ln_cross_attn']
+T5_ADAPTER_LAYERS = ['EncDecAttention', 'layer.1.layer_norm', 'layer.2.layer_norm']
 
 
 def set_metrics(pl_module):
@@ -22,6 +25,24 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_wd_loss", Scalar())
 			elif k == "div":
 				setattr(pl_module, f"{split}_div_loss", Scalar())
+			elif k == "pe":
+				setattr(pl_module, f"{split}_pe_loss", Scalar())
+				setattr(pl_module, f"{split}_i2t", Scalar())
+				setattr(pl_module, f"{split}_t2i", Scalar())
+				setattr(pl_module, f"{split}_i2t_pos", Scalar())
+				setattr(pl_module, f"{split}_i2t_neg", Scalar())
+				setattr(pl_module, f"{split}_t2i_pos", Scalar())
+				setattr(pl_module, f"{split}_t2i_neg", Scalar())
+			elif k == "mmpe":
+				setattr(pl_module, f"{split}_mmpe_loss", Scalar())
+				setattr(pl_module, f"{split}_i2t", Scalar())
+				setattr(pl_module, f"{split}_t2i", Scalar())
+				setattr(pl_module, f"{split}_logsig_l2_loss", Scalar())
+				setattr(pl_module, f"{split}_r1_per_batch", Scalar())
+			elif k == "vib":
+				setattr(pl_module, f"{split}_vib_loss", Scalar())
+				setattr(pl_module, f"{split}_image_volume", Scalar())
+				setattr(pl_module, f"{split}_text_volume", Scalar())
 			else:
 				setattr(pl_module, f"{split}_{k}_loss", Scalar())
 
@@ -39,11 +60,10 @@ def epoch_wrapup(pl_module):
 		if loss == "lm":
 			lm_loss = getattr(pl_module, f"{phase}_lm_loss").compute()
 			pl_module.log(
-				f"pe/{phase}/loss_epoch",
+				f"lm/{phase}/loss_epoch",
 				lm_loss,
 			)
 			getattr(pl_module, f"{phase}_lm_loss").reset()
-
 			value = lm_loss
 		elif loss == "wd":
 			wd_loss = getattr(pl_module, f"{phase}_wd_loss").compute()
@@ -52,7 +72,6 @@ def epoch_wrapup(pl_module):
 				wd_loss,
 			)
 			getattr(pl_module, f"{phase}_wd_loss").reset()
-
 			value = wd_loss
 		elif loss == "div":
 			div_loss = getattr(pl_module, f"{phase}_div_loss").compute()
@@ -61,16 +80,45 @@ def epoch_wrapup(pl_module):
 				div_loss,
 			)
 			getattr(pl_module, f"{phase}_div_loss").reset()
-
 			value = div_loss
+		elif loss == "pe":
+			pe_loss = getattr(pl_module, f"{phase}_pe_loss").compute()
+			pl_module.log(
+				f"div/{phase}/loss_epoch",
+				pe_loss,
+			)
+			getattr(pl_module, f"{phase}_pe_loss").reset()
+			value = pe_loss
+		elif loss == "mmpe":
+			mmpe_loss = getattr(pl_module, f"{phase}_mmpe_loss").compute()
+			pl_module.log(
+				f"div/{phase}/mmpe_loss_epoch",
+				mmpe_loss,
+			)
+			getattr(pl_module, f"{phase}_mmpe_loss").reset()
+			logsig_l2_loss = getattr(pl_module, f"{phase}_logsig_l2_loss").compute()
+			pl_module.log(
+				f"div/{phase}/logsig_l2_loss_epoch",
+				logsig_l2_loss,
+			)
+			getattr(pl_module, f"{phase}_logsig_l2_loss").reset()
+			value = mmpe_loss + logsig_l2_loss
+		elif loss == "vib":
+			vib_loss = getattr(pl_module, f"{phase}_vib_loss").compute()
+			pl_module.log(
+				f"div/{phase}/loss_epoch",
+				vib_loss,
+			)
+			getattr(pl_module, f"{phase}_vib_loss").reset()
+			value = vib_loss
 		else:
-			loss = getattr(pl_module, f"{phase}_{loss}_loss").compute()
+			loss_val = getattr(pl_module, f"{phase}_{loss}_loss").compute()
 			pl_module.log(
 				f"{loss}/{phase}/loss_epoch",
-				loss,
+				loss_val,
 			)
 			getattr(pl_module, f"{phase}_{loss}_loss").reset()
-			value = loss
+			value = loss_val
 
 		the_metric += value
 
@@ -91,6 +139,7 @@ def set_schedule(pl_module):
 	optim_type = pl_module.hparams._config["optimizer"]
 	lr = pl_module.hparams._config["learning_rate"]
 	wd = pl_module.hparams._config["weight_decay"]
+	mult = pl_module.hparams._config["lr_multiplier"]
 
 	no_decay = [
 		"bias",
@@ -109,13 +158,14 @@ def set_schedule(pl_module):
 	warmup_steps = pl_module.hparams._config["warmup_steps"]
 	decay_power = pl_module.hparams._config["decay_power"]
 	end_lr = pl_module.hparams._config["end_lr"]
-
+	decoder = pl_module.hparams._config["text_decoder"]
 	optimizer_grouped_parameters = [
 		{
 			"params": [
 				p
 				for n, p in pl_module.named_parameters()
 				if not any(nd in n for nd in no_decay)
+				and not in_adapter(n, decoder)
 			],
 			"weight_decay": wd,
 			"lr": lr,
@@ -125,9 +175,30 @@ def set_schedule(pl_module):
 				p
 				for n, p in pl_module.named_parameters()
 				if any(nd in n for nd in no_decay)
+				and not in_adapter(n, decoder)
 			],
 			"weight_decay": 0.0,
 			"lr": lr,
+		},
+		{
+			"params": [
+				p
+				for n, p in pl_module.named_parameters()
+				if not any(nd in n for nd in no_decay)
+				and in_adapter(n, decoder)
+			],
+			"weight_decay": wd,
+			"lr": lr * mult,
+		},
+		{
+			"params": [
+				p
+				for n, p in pl_module.named_parameters()
+				if any(nd in n for nd in no_decay)
+				and in_adapter(n, decoder)
+			],
+			"weight_decay": 0.0,
+			"lr": lr * mult,
 		},
 	]
 
@@ -196,3 +267,9 @@ def set_schedule(pl_module):
 		[optimizer],
 		[sched],
 	)
+
+def in_adapter(n, decoder):
+	if decoder is None:
+		return False
+	return ('gpt2' in decoder and any(nd in n for nd in GPT2_ADAPTER_LAYERS))\
+			or ('t5' in decoder and any(nd in n for nd in T5_ADAPTER_LAYERS))
