@@ -46,7 +46,6 @@ class Model(nn.Module):
 	def encode_image(self, batch):
 		images = batch['image']
 		X_encode = dict()
-
 		X, X_cls = self.image_encoder(images)
 		if self.to_pool:
 			X, ret = self.image_pooler(X_cls, X)

@@ -212,8 +212,8 @@ def t5_adapter():
 def pcme():
 	expt_name = "pcme"
 	losses = _loss_names({"pe": 1, "vib": 1})
-	image_encoder = 'resnet152'
-	text_encoder = 'gru'
+	image_encoder = 'openai/clip-vit-base-patch32'
+	text_encoder = 'sentence-transformers/all-distilroberta-v1'
 	text_decoder = None
 	image_encoder_finetune = False
 	text_encoder_finetune = False
@@ -234,7 +234,7 @@ def pcme():
 	weight_decay = 0.0001
 	lr_scheduler = 'cosine_annealing'
 
-	transform = 'resnet_h5py'
+	transform = 'clip_vit_h5py'
 	text_max_len = 512
 	max_epoch = 30
 	per_gpu_batchsize = 128

@@ -18,8 +18,8 @@ def get_tokenizer(_name, path=None):
 		return T5Tokenizer()
 	elif _name == "roberta":
 		return RoBERTaTokenizer()
-	elif _name == "sbert":
-		return
+	elif 'sentence-transformers' in _name:
+		return SentenceTransformersTokenizer(_name)
 	elif _name == "gru":
 		return GRUTokenizer(path)
 	else:
@@ -234,9 +234,9 @@ class GPT2Tokenizer():
 			tokens, masks = encodings['input_ids'], encodings['attention_mask']
 		return tokens, masks
 
-class T5Tokenizer():
+class AutoTokenizer():
 	def __init__(self):
-		self.tokenizer = transformers.T5Tokenizer.from_pretrained('t5-base')
+		self.tokenizer = None
 
 	def get_length(self):
 		return len(self.tokenizer)
@@ -245,6 +245,16 @@ class T5Tokenizer():
 		encodings = self.tokenizer(texts, return_tensors="pt", padding="longest", truncation=True, max_length=max_len)
 		tokens, masks = encodings['input_ids'], encodings['attention_mask']
 		return tokens, masks
+
+class T5Tokenizer(AutoTokenizer):
+	def __init__(self):
+		super().__init__()
+		self.tokenizer = transformers.T5Tokenizer.from_pretrained('t5-base')
+
+class SentenceTransformersTokenizer(AutoTokenizer):
+	def __init__(self, name):
+		super().__init__()
+		self.tokenizer = transformers.AutoTokenizer.from_pretrained(name)
 
 class GRUTokenizer():
 	def __init__(self, path):

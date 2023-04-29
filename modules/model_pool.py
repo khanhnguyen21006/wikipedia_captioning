@@ -14,10 +14,10 @@ from utils import GPT2_ADAPTER_LAYERS, T5_ADAPTER_LAYERS
 
 def get_image_encoder(_config):
 	"""
-	Visual Encoders supported:
-		- ResNet pre-trained on ImageNet
-		- ViT pre-trained on ImageNet
-		- CLIP-ViT pre-trained on openai dataset
+	Image Encoders experimented:
+		- ResNet pre-trained on ImageNet ('resnet152', 'resnet50')
+		- ViT pre-trained on ImageNet ('google/vit-base-patch16-224', 'google/vit-base-patch16-224-in21k')
+		- CLIP-ViT pre-trained on openai dataset ('openai/clip-vit-base-patch32', 'openai/clip-vit-base-patch16')
 	"""
 	_name = _config['image_encoder']
 	embed_dim = _config['embed_dim']
@@ -29,10 +29,10 @@ def get_image_encoder(_config):
 		return model, dim
 	# Note: Huggingface's VisionModel already has a linear mapping for pooled feature
 	elif 'google/vit' in _name:
-		model = ViT(_name)
+		model = ViT(_name, embed_dim)
 		dim = model.d
 	elif 'openai/clip' in _name:
-		model = CLIPImageEncoder(_name)
+		model = CLIPImageEncoder(_name, embed_dim)
 		dim = model.d
 	else:
 		raise ValueError(f"{_name} Image Encoder is not supported.")
@@ -41,6 +41,11 @@ def get_image_encoder(_config):
 	return model, dim
 
 def get_text_encoder(_config):
+	"""
+	Text Encoders experimented:
+		- RoBERTa pre-trained ('roberta-base')
+		- SentenceTransformers pre-trained ('sentence-transformers/all-distilroberta-v1', 'sentence-transformers/sentence-t5')
+	"""
 	_name = _config['text_encoder']
 	embed_dim = _config['embed_dim']
 	finetune = _config["text_encoder_finetune"]
@@ -53,7 +58,7 @@ def get_text_encoder(_config):
 		_config['text_encoder_dim'] = dim
 		return model, dim
 	elif 'sentence-transformers' in _name:
-		model = SentenceBERT(_name)
+		model = SentenceTransformers(_name, embed_dim)
 		dim = model.d
 	elif _name == 'gru':
 		model = GRU(**_config)
@@ -480,7 +485,6 @@ class ResNet(nn.Module):
 		self.pool = n_emb > 0
 		if self.pool:
 			self.avgpool = self.resnet.avgpool
-
 		self.fc = nn.Sequential(
 			nn.Linear(self.d, d_emb),
 			nn.LayerNorm(d_emb),
@@ -508,41 +512,68 @@ class ResNet(nn.Module):
 			return X, X_cls
 
 class ViT(nn.Module):
-	def __init__(self, name):
+	def __init__(self, name, d_emb):
 		super(ViT, self).__init__()
 		self.vit = ViTModel.from_pretrained(name)
 		self.d = self.vit.config.hidden_size
+		self.fc = nn.Sequential(
+			nn.Linear(self.d, d_emb),
+			nn.LayerNorm(d_emb),
+			# nn.Dropout(),
+			nn.GELU(),
+		)
+		vilt_init_weights(self.fc[0])
 
 	def forward(self, X):
 		X = self.vit(X)
-		X_cls = X.pooler_output
+		X_cls = self.fc(X.pooler_output)
 		X = X.last_hidden_state[:, 1:, :]
 		return X, X_cls
 
 class CLIPImageEncoder(nn.Module):
-	def __init__(self, name):
+	def __init__(self, name, d_emb):
 		super(CLIPImageEncoder, self).__init__()
 		self.clip_image_encoder = CLIPVisionModel.from_pretrained(name)
 		self.d = self.clip_image_encoder.config.hidden_size
+		self.fc = nn.Sequential(
+			nn.Linear(self.d, d_emb),
+			nn.LayerNorm(d_emb),
+			# nn.Dropout(),
+			nn.GELU(),
+		)
+		vilt_init_weights(self.fc[0])
 
 	def forward(self, X):
 		X = self.clip_image_encoder(X)
-		X_cls = X.pooler_output
+		X_cls = self.fc(X.pooler_output)
 		X = X.last_hidden_state[:, 1:, :]
 		return X, X_cls
 
-class SentenceBERT(nn.Module):
-	def __init__(self, name):
-		self.sbert = AutoModel.from_pretrained(name)
-		self.d = self.sbert.config.hidden_size
+class SentenceTransformers(nn.Module):
+	def __init__(self, name, d_emb):
+		super(SentenceTransformers, self).__init__()
+		self.model = AutoModel.from_pretrained(name)
+		self.d = self.model.config.hidden_size
+		self.fc = nn.Sequential(
+			nn.Linear(self.d, d_emb),
+			nn.LayerNorm(d_emb),
+			# nn.Dropout(),
+			nn.GELU(),
+		)
+		vilt_init_weights(self.fc[0])
 
 	def forward(self, X, **kwargs):
-		X = self.sbert(
+		X = self.model(
 			input_ids=X,
 			attention_mask=kwargs['mask'],
 		)
 		X = X.last_hidden_state
 		X_cls = mean_pool(X, kwargs['mask'])
+		if kwargs['pool']:
+			X_cls = self.fc(X_cls)
+		else:
+			X = self.fc(X)
+			X_cls = mean_pool(X, kwargs['mask'])
 		X_mask = ~kwargs['mask'].bool()
 		return X, X_cls, X_mask
 
