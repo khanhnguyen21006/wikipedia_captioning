@@ -23,21 +23,18 @@ def get_image_encoder(_config):
 	embed_dim = _config['embed_dim']
 	finetune = _config["image_encoder_finetune"]
 	if 'resnet' in _name:
-		model = ResNet(_name, embed_dim, _config['n_embed'])
+		model = ResNet(_name, embed_dim, _config['n_embed'], finetune)
 		dim = model.d
-		_config['image_encoder_dim'] = dim
-		return model, dim
 	# Note: Huggingface's VisionModel already has a linear mapping for pooled feature
 	elif 'google/vit' in _name:
-		model = ViT(_name, embed_dim)
+		model = ViT(_name, embed_dim, finetune)
 		dim = model.d
 	elif 'openai/clip' in _name:
-		model = CLIPImageEncoder(_name, embed_dim)
+		model = CLIPImageEncoder(_name, embed_dim, finetune)
 		dim = model.d
 	else:
 		raise ValueError(f"{_name} Image Encoder is not supported.")
 	_config['image_encoder_dim'] = dim
-	set_finetune(model, finetune)
 	return model, dim
 
 def get_text_encoder(_config):
@@ -50,27 +47,22 @@ def get_text_encoder(_config):
 	embed_dim = _config['embed_dim']
 	finetune = _config["text_encoder_finetune"]
 	if _name == 'roberta':
-		model = RoBERTa(embed_dim)
+		model = RoBERTa(embed_dim, finetune)
 		dim = model.d
 	elif _name == "t5-adapter":
-		model = T5Adapter(finetune=finetune)
+		model = T5Adapter(finetune)
 		dim = T5Config.from_pretrained('t5-base').d_model
-		_config['text_encoder_dim'] = dim
-		return model, dim
 	elif 'sentence-transformers' in _name:
-		model = SentenceTransformers(_name, embed_dim)
+		model = SentenceTransformers(_name, embed_dim, finetune)
 		dim = model.d
 	elif _name == 'gru':
 		model = GRU(**_config)
 		dim = _config['text_dim']
-		_config['text_encoder_dim'] = dim
-		return model, dim
 	elif _name is None:
 		return None, None
 	else:
 		raise ValueError(f"{_name} Text Encoder is not supported.")
 	_config['text_encoder_dim'] = dim
-	set_finetune(model, finetune)
 	return model, dim
 
 def get_text_decoder(_config):
@@ -78,23 +70,19 @@ def get_text_decoder(_config):
 	finetune = _config["text_decoder_finetune"]
 	if _name == 'gpt2':
 		cfg = GPT2Config.from_pretrained('gpt2')
-		model = GPT2(cfg, get_tokenizer(_name), finetune=finetune)
+		model = GPT2(cfg, get_tokenizer(_name), finetune)
 		dim = cfg.n_embd
-		return model, dim
 	elif _name == 'gpt2++':
 		cfg = GPT2Config.from_pretrained('gpt2')
-		model = GPT2pp(cfg, get_tokenizer(_name), finetune=finetune)
+		model = GPT2pp(cfg, get_tokenizer(_name), finetune)
 		dim = cfg.n_embd
-		return model, dim
 	elif _name == 'gpt2-adapter':
 		cfg = GPT2Config.from_pretrained('gpt2', add_cross_attention=True)
-		model = GPT2Adapter(cfg, get_tokenizer(_name), finetune=finetune)
+		model = GPT2Adapter(cfg, get_tokenizer(_name), finetune)
 		dim = cfg.n_embd
-		return model, dim
 	elif _name == 't5++':
-		model = T5(finetune=finetune)
+		model = T5(finetune)
 		dim = T5Config.from_pretrained('t5-base').d_model
-		return model, dim
 	elif _name == 'otp':
 		pass
 	elif _name == 'otp-adapter':
@@ -103,7 +91,6 @@ def get_text_decoder(_config):
 		return None, None
 	else:
 		raise ValueError(f"{_name} Text Decoder is not supported.")
-	set_finetune(model, finetune)
 	return model, dim
 
 def init_weights(module):
@@ -128,7 +115,7 @@ def mean_pool(X, mask):
 	return torch.sum(X * mask_expanded, dim=1)/ mask_expanded.sum(dim=1)
 
 class GPT2(nn.Module):
-	def __init__(self, cfg, tokenizer, finetune=False):
+	def __init__(self, cfg, tokenizer, finetune):
 		super(GPT2, self).__init__()
 		self.gpt2 = GPT2LMHeadModel.from_pretrained("gpt2", config=cfg)
 		self.gpt2.resize_token_embeddings(tokenizer.get_length())
@@ -348,7 +335,7 @@ class GPT2Adapter(GPT2):
 		return kwargs
 
 class T5(nn.Module):
-	def __init__(self, finetune=False):
+	def __init__(self, finetune):
 		super(T5, self).__init__()
 		self.t5 = T5ForConditionalGeneration.from_pretrained("t5-base")
 		self.finetune_t5(finetune)
@@ -477,7 +464,7 @@ class T5Adapter(T5):
 		return kwargs
 
 class ResNet(nn.Module):
-	def __init__(self, name, d_emb, n_emb, finetune=False):
+	def __init__(self, name, d_emb, n_emb, finetune):
 		super(ResNet, self).__init__()
 		self.resnet = getattr(models, name)(pretrained=True)
 		self.d = self.resnet.fc.in_features
@@ -495,7 +482,7 @@ class ResNet(nn.Module):
 
 		self.resnet.avgpool = nn.Sequential()
 		self.resnet.fc = nn.Sequential()
-		set_finetune(self.resnet, finetune)	
+		set_finetune(self.resnet, finetune)
 
 	def forward(self, X):
 		f = X.size(-1) // 32
@@ -512,7 +499,7 @@ class ResNet(nn.Module):
 			return X, X_cls
 
 class ViT(nn.Module):
-	def __init__(self, name, d_emb):
+	def __init__(self, name, d_emb, finetune):
 		super(ViT, self).__init__()
 		self.vit = ViTModel.from_pretrained(name)
 		self.d = self.vit.config.hidden_size
@@ -523,6 +510,7 @@ class ViT(nn.Module):
 			nn.GELU(),
 		)
 		vilt_init_weights(self.fc[0])
+		set_finetune(self.vit, finetune)
 
 	def forward(self, X):
 		X = self.vit(X)
@@ -531,7 +519,7 @@ class ViT(nn.Module):
 		return X, X_cls
 
 class CLIPImageEncoder(nn.Module):
-	def __init__(self, name, d_emb):
+	def __init__(self, name, d_emb, finetune):
 		super(CLIPImageEncoder, self).__init__()
 		self.clip_image_encoder = CLIPVisionModel.from_pretrained(name)
 		self.d = self.clip_image_encoder.config.hidden_size
@@ -542,6 +530,7 @@ class CLIPImageEncoder(nn.Module):
 			nn.GELU(),
 		)
 		vilt_init_weights(self.fc[0])
+		set_finetune(self.clip_image_encoder, finetune)
 
 	def forward(self, X):
 		X = self.clip_image_encoder(X)
@@ -550,7 +539,7 @@ class CLIPImageEncoder(nn.Module):
 		return X, X_cls
 
 class SentenceTransformers(nn.Module):
-	def __init__(self, name, d_emb):
+	def __init__(self, name, d_emb, finetune):
 		super(SentenceTransformers, self).__init__()
 		self.model = AutoModel.from_pretrained(name)
 		self.d = self.model.config.hidden_size
@@ -561,6 +550,7 @@ class SentenceTransformers(nn.Module):
 			nn.GELU(),
 		)
 		vilt_init_weights(self.fc[0])
+		set_finetune(self.model, finetune)
 
 	def forward(self, X, **kwargs):
 		X = self.model(
@@ -578,7 +568,7 @@ class SentenceTransformers(nn.Module):
 		return X, X_cls, X_mask
 
 class RoBERTa(nn.Module):
-	def __init__(self, d_emb):
+	def __init__(self, d_emb, finetune):
 		super(RoBERTa, self).__init__()
 		self.roberta = torch.hub.load('pytorch/fairseq:main', 'roberta.large')
 		self.d = self.roberta.cfg.model.encoder_embed_dim
@@ -589,6 +579,7 @@ class RoBERTa(nn.Module):
 			nn.GELU(),
 		)
 		vilt_init_weights(self.fc[0])
+		set_finetune(self.roberta, finetune)
 
 	def forward(self, X, **kwargs):
 		X = self.roberta.extract_features(X, return_all_hiddens=False)
@@ -636,11 +627,7 @@ class GRU(nn.Module):
 		print('Words: {}/{} found in vocabulary; {} words missing'.format(
 				len(word2idx) - len(missing_words), len(word2idx), len(missing_words)))
 		self.rnn = nn.GRU(text_dim, d_emb//2, bidirectional=True, batch_first=True)
-		self.finetune_gru(kwargs['text_encoder_finetune'])
-
-	def finetune_gru(self, ft):
-		for p in self.embed.parameters():
-			p.requires_grad = ft
+		self.set_finetune(self.embed, kwargs['text_encoder_finetune'])
 
 	def forward(self, X, **kwargs):
 		X = self.embed(X)
