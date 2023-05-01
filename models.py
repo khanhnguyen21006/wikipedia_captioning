@@ -17,9 +17,9 @@ class Model(nn.Module):
 		n_emb = _config['n_embed']
 		self.to_pool = n_emb > 0
 		if self.to_pool:
-			self.image_pooler = PCMENet(d_im, **_config)
+			self.image_pooler = get_image_pooler(d_im, _config)
 			if self.text_encoder is not None:
-				self.text_pooler = PCMENet(d_txt, **_config)
+				self.text_pooler = get_text_pooler(d_txt, _config)
 		# import pudb; pu.db
 		# self.fuser = None
 
@@ -28,7 +28,7 @@ class Model(nn.Module):
 
 		X_image = self.encode_image(batch)
 		X_encode.update({'image': X_image})
-		
+
 		[
 			X_encode.update({k: self.encode_text(batch, k)})
 			for k in TEXT_ENCODER_KEYS if k in batch

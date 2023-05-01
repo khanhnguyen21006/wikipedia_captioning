@@ -40,6 +40,8 @@ def config():
 	text_max_len = 512
 	text_embed = 'glove'  # for RNNs
 	text_dim = 300  # for RNNs
+	image_pooling = 'pcme'  # optional 'pcme'|'slot'|'gaussian'
+	text_pooling = 'pcme'  #
 
 	n_embed = 8
 	prob_embed = False

@@ -6,6 +6,39 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import numpy as np
 from utils import sample_gaussian_tensors
 
+def get_image_pooler(dim, _config):
+    """
+    Pooling strategies experimented:
+        - PCME/PVSE
+        - Slot Attention
+    """
+    _name = _config['image_pooling']
+    if _name in ['pcme', 'pvse']:
+        model = PCMENet(dim, **_config)
+    elif _name == 'slot':
+        model = SlotAttention(dim, **_config)
+    else:
+        raise ValueError(f"{_name} Image Pooling is not supported.")
+    return model
+
+def get_text_pooler(dim, _config):
+    """
+    Pooling strategies experimented:
+        - PCME/PVSE
+        - Slot Attention
+        - Gaussian Cross Attention
+    """
+    _name = _config['text_pooling']
+    if _name in ['pcme', 'pvse']:
+        model = PCMENet(dim, **_config)
+    elif _name == 'slot':
+        model = SlotAttentionNet(dim, **_config)
+    elif _name == 'gaussian':
+        model = GaussianAttentionNet(dim, **_config)
+    else:
+        raise ValueError(f"{_name} Text Pooling is not supported.")
+    return model
+
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, n_head, d_in, d_h):
         super(MultiHeadSelfAttention, self).__init__()
@@ -127,3 +160,68 @@ class PCMENet(nn.Module):
         else:
             x = x_attn
         return x, out
+
+class SlotAttentionNet(nn.Module):
+    """Slot Attention https://arxiv.org/abs/2006.15055"""
+    def __init__(self, d_in, **kwargs):
+        super().__init__()
+        self.T = kwargs['n_slot_itertation']
+        self.K = kwargs['n_slot']
+        d_emb = kwargs['embed_dim']
+        self.d_emb = d_emd
+        self.scale = d_emb ** -0.5
+
+        self.ln_cls = nn.LayerNorm(d_emb)
+        self.ln_q = nn.LayerNorm(d_emb)
+        self.ln_kv = nn.LayerNorm(d_in)
+        self.ln_pre_mlp = nn.LayerNorm(d_emb)
+        self.ln_post_mlp = nn.LayerNorm(d_emb)
+
+        # Parameters for Gaussian init (shared by all slots).
+        self.q_mu = nn.Parameter(torch.randn(1, 1, d_emb))
+        self.q_logsig = nn.Parameter(torch.zeros(1, 1, d_emb))
+        init.xavier_uniform_(self.q_logsig)
+
+        # Linear maps for the attention module.
+        self.w_q = nn.Linear(d_in, d_emb)
+        self.w_k = nn.Linear(d_in, d_emb)
+        self.w_v = nn.Linear(d_in, d_emb)
+
+        # Slot update functions.
+        self.w_u = nn.Linear(d_emb, d_emb)
+        self.mlp = nn.Sequential(
+            nn.Linear(d_emb, d_emb),
+            nn.GELU(),
+            nn.Linear(d_emb, d_emb)
+        )
+
+    def forward(self, x_cls, x, eps=1e-8):
+        x_in = self.ln_kv(x)  # Apply layer norm to the input.
+        k = self.w_k(x_in)  # (bs, N, d_emb)
+        v = self.w_v(x_in)  # (bs, N, d_emb)
+
+        x = sample_gaussian_tensors(self.q_mu, self.q_logsig, self.K)  # (bs, K, d_emb)
+        for _ in range(self.T): # Multiple rounds of attention.
+            x_prev = x  # (bs, K, d_emb)
+            x = self.ln_q(x) # (bs, K, d_emb)
+
+            # Attention.
+            q = self.w_q(x)  # (bs, K, d_emb)
+            attn = F.softmax(torch.bmm(k, q.transpose(2, 1))/(self.scale), dim=-1)  # (bs, N, K)
+            attn += eps
+            attn /= torch.sum(attn, dim=1).unsqueeze(1)  # (bs, N, K)
+            x = torch.bmm(attn.transpose(2, 1), v)  # (bs, K, d_emb)
+
+            # Slot update.
+            x = self.w_u(x) + x_prev
+            x = self.mlp(self.ln_mlp(x)) + x
+
+            x = self.ln_post_mlp(x + x_cls.unsqueeze(1).repeat(1, self.K, 1))
+        return x
+
+class GaussianAttention(nn.Module):
+    def __init__(self, d_in, **kwargs):
+        super().__init__()
+
+    def forward(self, x_cls, x):
+        pass

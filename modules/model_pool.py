@@ -589,7 +589,7 @@ class RoBERTa(nn.Module):
 		else:
 			X = self.fc(X)
 			X_cls = mean_pool(X, kwargs['mask'])
-		X_mask = ~kwargs['mask'][:, 1:].bool()
+		X_mask = ~kwargs['mask'].bool()
 		return X, X_cls, X_mask
 
 class GRU(nn.Module):
