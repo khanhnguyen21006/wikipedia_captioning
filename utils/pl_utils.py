@@ -25,8 +25,8 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_wd_loss", Scalar())
 			elif k == "div":
 				setattr(pl_module, f"{split}_div_loss", Scalar())
-			elif k == "pe":
-				setattr(pl_module, f"{split}_pe_loss", Scalar())
+			elif k == "pe" or k == "de":
+				setattr(pl_module, f"{split}_{k}_loss", Scalar())
 				setattr(pl_module, f"{split}_i2t", Scalar())
 				setattr(pl_module, f"{split}_t2i", Scalar())
 				setattr(pl_module, f"{split}_i2t_pos", Scalar())
@@ -81,24 +81,24 @@ def epoch_wrapup(pl_module):
 			)
 			getattr(pl_module, f"{phase}_div_loss").reset()
 			value = div_loss
-		elif loss == "pe":
-			pe_loss = getattr(pl_module, f"{phase}_pe_loss").compute()
+		elif loss == "pe" or loss == "de":
+			loss_val = getattr(pl_module, f"{phase}_{loss}_loss").compute()
 			pl_module.log(
-				f"div/{phase}/loss_epoch",
-				pe_loss,
+				f"{loss}/{phase}/loss_epoch",
+				loss_val,
 			)
-			getattr(pl_module, f"{phase}_pe_loss").reset()
-			value = pe_loss
+			getattr(pl_module, f"{phase}_{loss}_loss").reset()
+			value = loss_val
 		elif loss == "mmpe":
 			mmpe_loss = getattr(pl_module, f"{phase}_mmpe_loss").compute()
 			pl_module.log(
-				f"div/{phase}/mmpe_loss_epoch",
+				f"mmpe/{phase}/mmpe_loss_epoch",
 				mmpe_loss,
 			)
 			getattr(pl_module, f"{phase}_mmpe_loss").reset()
 			logsig_l2_loss = getattr(pl_module, f"{phase}_logsig_l2_loss").compute()
 			pl_module.log(
-				f"div/{phase}/logsig_l2_loss_epoch",
+				f"mmpe/{phase}/logsig_l2_loss_epoch",
 				logsig_l2_loss,
 			)
 			getattr(pl_module, f"{phase}_logsig_l2_loss").reset()
@@ -106,7 +106,7 @@ def epoch_wrapup(pl_module):
 		elif loss == "vib":
 			vib_loss = getattr(pl_module, f"{phase}_vib_loss").compute()
 			pl_module.log(
-				f"div/{phase}/loss_epoch",
+				f"vib/{phase}/loss_epoch",
 				vib_loss,
 			)
 			getattr(pl_module, f"{phase}_vib_loss").reset()

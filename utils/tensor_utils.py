@@ -66,27 +66,31 @@ def product_2_gaussians(mu1, logsig1, mu2, logsig2):
         mu2 = mu2.unsqueeze(0)
     if len(logsig2.shape) == 1:
         logsig2 = logsig2.unsqueeze(0)
-    logsig1 = torch.exp(logsig1)
-    logsig2 = torch.exp(logsig2)
 
+    sig1 = torch.exp(logsig1), 
+    sig2 = torch.exp(logsig2)
     target_mu = mu2
-    target_logsig = logsig2
+    target_sig = sig2
 
-    inv_logsig1 = 1 / logsig1
-    inv_target_logsig = 1 / target_logsig
-    C = torch.diag_embed(1 / (inv_logsig1 + inv_target_logsig))
-    c = torch.matmul(C, torch.matmul(torch.diag_embed(inv_logsig1), mu1[:, :, None]) + torch.matmul(
-        torch.diag_embed(inv_target_logsig), target_mu[:, :, None])).squeeze()
-    log_Z = MultilogsigiateNormal(target_mu, torch.diag_embed(logsig1 + target_logsig + 1e-6)).log_prob(mu1)
+    inv_sig1 = 1 / sig1
+    inv_target_sig = 1 / target_sig
+    C = torch.diag_embed(1 / (inv_sig1 + inv_target_sig))
+    c = torch.matmul(C, torch.matmul(torch.diag_embed(inv_sig1), mu1[:, :, None]) + 
+        torch.matmul(torch.diag_embed(inv_target_sig), target_mu[:, :, None])).squeeze()
+    log_Z = MultilogsigiateNormal(target_mu, torch.diag_embed(sig1 + target_sig + 1e-6)).log_prob(mu1)
     C = torch.diagonal(C, dim1=-2, dim2=-1)
     C = torch.log(C)
-
     return c, C, log_Z
 
 def addition_2_gaussians(mu1, logsig1, mu2, logsig2):
-    logsig1 = torch.exp(logsig1)
-    logsig2 = torch.exp(logsig2)
-    return mu1 + mu2, torch.log(logsig1 + logsig2), torch.zeros(mu1.shape[0], device='cuda')
+    sig1, sig2 = torch.exp(logsig1), torch.exp(logsig2)
+    return mu1 + mu2, torch.log(sig1 + sig2), torch.zeros(mu1.shape[0], device='cuda')
+
+def mixture_2_gaussians(mu1, logsig1, mu2, logsig2):
+    sig1, sig2 = torch.exp(logsig1), torch.exp(logsig2)
+    mu = torch.mean(mu1 + mu2, dim=1)
+    logsig = torch.log(torch.mean(sig1 + torch.square(mu1) + sig2 + torch.square(mu2), dim=1) - torch.square(mu))
+    return mu, logsig, torch.zeros(mu1.shape[0], device='cuda')
 
 def trace(x):
     b, m, n = x.size()
@@ -121,9 +125,38 @@ def find_index(x, y):
     update_index = torch.cat([tmp_idx.unsqueeze(-1), pad_ones.long()], dim=-1)
     return torch.cumsum(update_index, dim=1)
 
-def distributed_gather(x):
+def distributed_all_gather(x):
+    """
+    Gathers tensors of same lengths in a tensor.
+    """
     ws = torch.distributed.get_world_size()
-    b = [torch.zeros_like(x) for _ in range(ws)]
-    torch.distributed.all_gather(b, x)
-    b = torch.cat(b, dim=0)
-    return b
+    all_tensors = [torch.zeros_like(x) for _ in range(ws)]
+    torch.distributed.all_gather(all_tensors, x)
+    all_tensors = torch.cat(all_tensors, dim=0)
+    return all_tensors
+
+def distributed_all_gather_nd(x):
+    """
+    Gathers tensors of different lengths in a tensor.
+    The length dimension is 0. This supports any number of extra dimensions in the tensors.
+    """
+    ws = torch.distributed.get_world_size()
+    local_size = torch.tensor(x.size(), device=x.device)
+    all_sizes = [torch.zeros_like(local_size) for _ in range(ws)]
+    torch.distributed.all_gather(all_sizes, local_size)
+
+    max_len = max(_size[0] for _size in all_sizes)
+
+    len_diff = max_len.item() - local_size[0].item()
+    if len_diff:
+        pad_size = (len_diff, *x.size()[1:])
+        pad = torch.zeros(pad_size, device=x.device, dtype=x.dtype)
+        x = torch.cat((x, pad))
+
+    all_padded = [torch.zeros_like(x) for _ in range(ws)]
+    torch.distributed.all_gather(all_padded, x)
+    all_tensors = []
+    for _tensor, _size in zip(all_padded, all_sizes):
+        all_tensors.append(_tensor[:_size[0]])
+    all_tensors = torch.cat(all_tensors, dim=0)
+    return all_tensors

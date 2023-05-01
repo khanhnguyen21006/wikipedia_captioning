@@ -50,6 +50,9 @@ class PlayGround(pl.LightningModule):
 		if 'pe' in self.losses:
 			ret.update(objectives.compute_pe(self.model, out))
 
+		if 'de' in self.losses:
+			ret.update(objectives.compute_de(self.model, out))
+
 		if 'mmpe' in self.losses:
 			ret.update(objectives.compute_mmpe(self.model, out))
 
@@ -92,7 +95,7 @@ class PlayGround(pl.LightningModule):
 		return utils.set_schedule(self)
 
 	def register_loss_params(self):
-		if "pe" in self.losses:
+		if "pe" in self.losses or "de" in self.losses:
 			self.model.scale = nn.Parameter(self.hparams._config["pe_scale"] * torch.ones(1))
 			self.model.shift = nn.Parameter(self.hparams._config["pe_shift"] * torch.ones(1))
 			self.model.register_parameter('scale', self.model.scale)
@@ -113,24 +116,25 @@ class PlayGround(pl.LightningModule):
 			div_loss = getattr(self, f"{phase}_div_loss")(output["div_loss"])
 			self.log(f"div/{phase}/loss", div_loss, batch_size=self.hparams._config["per_gpu_batchsize"])
 
-		if "pe" in self.losses:
+		if "pe" in self.losses or "de" in self.losses:
+			loss_name = "pe" if "pe" in self.losses else "de"
 			if phase == "train":
 				self.log(f"scale/{phase}/scale", self.model.scale)
 				self.log(f"shift/{phase}/shift", self.model.shift)
-			pe_loss = getattr(self, f"{phase}_pe_loss")(output["pe_loss"])
+			loss = getattr(self, f"{phase}_{loss_name}_loss")(output[f"{loss_name}_loss"])
 			i2t = getattr(self, f"{phase}_i2t")(output["i2t"])
 			t2i = getattr(self, f"{phase}_t2i")(output["t2i"])
 			i2t_pos = getattr(self, f"{phase}_i2t_pos")(output["i2t_pos"])
 			i2t_neg = getattr(self, f"{phase}_i2t_neg")(output["i2t_neg"])
 			t2i_pos = getattr(self, f"{phase}_t2i_pos")(output["t2i_pos"])
 			t2i_neg = getattr(self, f"{phase}_t2i_neg")(output["t2i_neg"])
-			self.log(f"pe/{phase}/pe_loss", pe_loss, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"pe/{phase}/i2t", i2t, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"pe/{phase}/t2i", t2i, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"pe/{phase}/i2t_pos", i2t_pos, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"pe/{phase}/i2t_neg", i2t_neg, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"pe/{phase}/t2i_pos", t2i_pos, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"pe/{phase}/t2i_neg", t2i_neg, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/{loss_name}_loss", loss, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/i2t", i2t, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/t2i", t2i, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/i2t_pos", i2t_pos, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/i2t_neg", i2t_neg, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/t2i_pos", t2i_pos, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"{loss_name}/{phase}/t2i_neg", t2i_neg, batch_size=self.hparams._config["per_gpu_batchsize"])
 
 		if "mmpe" in self.losses:
 			mmpe_loss = getattr(self, f"{phase}_mmpe_loss")(output["mmpe_loss"])

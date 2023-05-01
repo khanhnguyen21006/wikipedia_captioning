@@ -9,6 +9,7 @@ def _loss_names(d):
 		"wd": 0,
 		"div": 0,
 		"pe": 0,
+		"de": 0,
 		"mmpe": 0,
 		"vib": 0,
 	}
@@ -149,19 +150,10 @@ def eval():
 	test = True
 	# run_caption = True
 
-	# run_retrieve = True
-	# retrieval_testset = 'test_1k_RET'
-	# multi_query = None
-	# prob_embed = True
-	# source_to_target = {'source': ['image'], 'target': 'section'}
-	# eval_method = 'matching_prob'
-
 	run_retrieve = True
-	retrieval_testset = 'test_1k_RET'
-	multi_query = 'addition'
-	prob_embed = True
-	source_to_target = {'source': ['image', 'description'], 'target': 'section'}
+	retrieval_testset = 'test_5k_RET'
 	eval_method = 'matching_prob'
+	num_gpus = 1
 
 
 @ex.named_config

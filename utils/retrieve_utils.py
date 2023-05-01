@@ -111,18 +111,18 @@ def retrieve_wrapup(pl_module):
     for _b in tqdm.tqdm(ret_loader, desc="test retrieval loop"):
         _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
         model_out = pl_module.model.encode(_b)
-        if n_emb > 0:
+        if n_emb > 1:
             if prob_emb:
-                update_emb_output(emb_out, model_out, mm_query, source, target, n_emb)
+                update_embedding(emb_out, model_out, mm_query, source, target, n_emb)
             else:
-                update_pvs_emb_output(emb_out, model_out, source, target)
+                update_pvs_embedding(emb_out, model_out, source, target)
         else:
-            update_det_emb_output(emb_out, model_out, mm_query, source, target)
+            update_det_embedding(emb_out, model_out, mm_query, source, target)
     emb_out = {k: torch.cat(v, dim=0) for k, v in emb_out.items() if len(v) > 0}
 
     torch.distributed.barrier()
 
-    buffer = {k: distributed_gather(v) for k, v in emb_out.items()}
+    buffer = {k: distributed_all_gather(v) for k, v in emb_out.items()}
     cosine_matrix = torch.zeros(n_query, n_query)
     if _config['eval_method'] == 'matmul':
         for idx, query in enumerate(buffer['image_emb']):
@@ -132,11 +132,11 @@ def retrieve_wrapup(pl_module):
             _score = query.mm(gallery)
             if n_emb > 1:
                 _score = _score.view(
-                    int(len(query)/n_emb), n_emb, int(gallery.size()[-1]/n_emb), n_emb
+                    len(query)//n_emb, n_emb, gallery.size()[-1]//n_emb, n_emb
                 )
                 _score = _score.permute(0, 1, 3, 2)
                 _score = torch.sum(torch.sum(_score, axis=1), axis=1)
-                cosine_matrix[idx] = _score
+            cosine_matrix[idx] = _score
     elif _config['eval_method'] == 'matching_prob':
         scale, shift = pl_module.model.scale, pl_module.model.shift
         for idx, query in enumerate(buffer['image_emb']):
@@ -166,6 +166,8 @@ def retrieve_wrapup(pl_module):
     print("t2i retrieval: ", t2i)
 
     if torch.distributed.get_rank() == 0:
+        if n_emb < 1:
+            return
         expt_path = os.path.join(
             _config['result_dir'], 'inference', _config['expt_name'], 'retrieve'
         )
@@ -192,7 +194,7 @@ def retrieve_wrapup(pl_module):
                 np.save(os.path.join(expt_path, f"{source[1]}_mu_{test_split}"), buffer['txt_emb'].detach().cpu().numpy())
                 np.save(os.path.join(expt_path, f"{target}_mu_{test_split}"), buffer['text_emb'].detach().cpu().numpy())
 
-def update_emb_output(emb_out, model_out, mm_query, source, target, n_emb):
+def update_embedding(emb_out, model_out, mm_query, source, target, n_emb):
     _image_emb, _text_emb = model_out['image']['embedding'], model_out[target]['embedding']
     _image_logsig, _text_logsig = model_out['image']['logsigma'], model_out[target]['logsigma']
     if mm_query is not None:
@@ -200,7 +202,11 @@ def update_emb_output(emb_out, model_out, mm_query, source, target, n_emb):
         _txt_emb, _txt_logsig = model_out[source[1]]['embedding'], model_out[source[1]]['logsigma']
         if mm_query == 'addition':
             _im_mu, _txt_mu = _im_emb.mean(dim=1), _txt_emb.mean(dim=1)
-            _image_mu, _image_logsig, log_z = addition_2_gaussians(_im_mu, _im_logsig, _txt_mu, _txt_logsig)
+            _image_mu, _image_logsig, _ = addition_2_gaussians(_im_mu, _im_logsig, _txt_mu, _txt_logsig)
+            _image_emb = sample_gaussian_tensors(_image_mu, _image_logsig, n_emb)
+        if mm_query == 'mixture':
+            _im_mu, _txt_mu = _im_emb.mean(dim=1), _txt_emb.mean(dim=1)
+            _image_mu, _image_logsig, _ = mixture_2_gaussians(_im_mu, _im_logsig, _txt_mu, _txt_logsig)
             _image_emb = sample_gaussian_tensors(_image_mu, _image_logsig, n_emb)
         if mm_query == 'multiplication':
             _image_mu, _image_logsig, log_z = product_2_gaussians(_im_emb, _im_logsig, _txt_emb, _txt_logsig)
@@ -215,8 +221,18 @@ def update_emb_output(emb_out, model_out, mm_query, source, target, n_emb):
     emb_out['image_logsig'].append(_image_logsig)
     emb_out['text_logsig'].append(_text_logsig)
 
-def update_pvs_emb_output(emb_out, model_out, source, target):
+def update_pvs_embedding(emb_out, model_out, source, target):
     pass
 
-def update_det_emb_output(emb_out, model_out, mm_query, source, target):
-    pass
+def update_det_embedding(emb_out, model_out, mm_query, source, target):
+    _image_emb, _text_emb = model_out['image']['embedding'].unsqueeze(1), model_out[target]['embedding'].unsqueeze(1)
+    if mm_query is not None:
+        _im_emb, _txt_emb = model_out['image']['embedding'].unsqueeze(1), model_out[source[1]]['embedding'].unsqueeze(1)
+        if mm_query == 'addition':
+            _image_emb = _im_emb + _txt_emb
+        if mm_query == 'average':
+            _image_emb = (_im_emb + _txt_emb)/2
+        emb_out['im_emb'].append(_im_emb)
+        emb_out['txt_emb'].append(_txt_emb)
+    emb_out['image_emb'].append(_image_emb)
+    emb_out['text_emb'].append(_text_emb)

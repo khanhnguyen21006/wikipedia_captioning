@@ -125,26 +125,53 @@ def compute_div(model, out):
     ret = {"div_loss": dl * div_loss}
     return ret
 
-def compute_pe(model, out):
-    n_emb = model._config['n_embed']
-    mm_query = model._config['multi_query']
+def compute_de(model, out):
+    n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
     source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
-    assert (mm_query is None and len(source) == 1) or (mm_query is not None and len(source) == 2)
+    assert n_emb == 1 and not prob_emb and (mm_query is None and len(source) == 1) or (mm_query is not None and len(source) == 2)
+    if mm_query is None:
+        image_emb, text_emb = out['image']['embedding'].unsqueeze(1), out[target]['embedding'].unsqueeze(1)
+    elif mm_query == 'addition':
+        image_emb = out['image']['embedding'].unsqueeze(1) + out[source[1]]['embedding'].unsqueeze(1)
+        text_emb = out[target]['embedding'].unsqueeze(1)
+    elif mm_query == 'average':
+        image_emb = (out['image']['embedding'].unsqueeze(1) + out[source[1]]['embedding'].unsqueeze(1))/2
+        text_emb = out[target]['embedding'].unsqueeze(1) 
+    else:
+        raise ValueError("Invalid query composition.")
+    i2t = pe_loss(image_emb, text_emb, model.scale, model.shift)
+    t2i = pe_loss(text_emb, image_emb, model.scale, model.shift)
+    ret = {
+        'i2t': i2t['loss'].item(),
+        't2i': t2i['loss'].item(),
+        'i2t_pos': i2t['pos_loss'].item(),
+        'i2t_neg': i2t['neg_loss'].item(),
+        't2i_pos': t2i['pos_loss'].item(),
+        't2i_neg': t2i['neg_loss'].item(),
+        'de_loss': (i2t['loss'] + t2i['loss']),
+    }
+    return ret
+
+def compute_pe(model, out):
+    n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
+    source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
+    assert n_emb > 1 and prob_emb and ((mm_query is None and len(source) == 1) or (mm_query is not None and len(source) == 2))
     if mm_query is None:
         image_emb, text_emb = out['image']['embedding'], out[target]['embedding']
-        i2t = pe_loss(image_emb, text_emb, model.scale, model.shift)
-        t2i = pe_loss(text_emb, image_emb, model.scale, model.shift)
-    elif mm_query == 'addition':
+    else:
         # for PE+addition: average samples from distibution to compute the mean
         im_mu, im_logsig = out['image']['embedding'].mean(dim=1), out['image']['logsigma']
         txt_mu, txt_logsig = out[source[1]]['embedding'].mean(dim=1), out[source[1]]['logsigma']
-        mu, logsig, log_z = addition_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
+        if mm_query == 'addition':
+            mu, logsig, _ = addition_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
+        elif mm_query == 'mixture':
+            mu, logsig, _ = mixture_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
+        else:
+            raise ValueError("Invalid query composition.")
         image_emb = sample_gaussian_tensors(mu, logsig, n_emb)
         text_emb = out[target]['embedding']
-        i2t = pe_loss(image_emb, text_emb, model.scale, model.shift)
-        t2i = pe_loss(text_emb, image_emb, model.scale, model.shift)
-    else:
-        raise ValueError("Invalid query composition.")
+    i2t = pe_loss(image_emb, text_emb, model.scale, model.shift)
+    t2i = pe_loss(text_emb, image_emb, model.scale, model.shift)
     ret = {
         'i2t': i2t['loss'].item(),
         't2i': t2i['loss'].item(),
@@ -157,15 +184,14 @@ def compute_pe(model, out):
     return ret
 
 def compute_mmpe(mopdel, out):
-    n_emb = model._config['n_embed']
     l2l = model._config['mmpe_l2_lambda']
-    mm_query = model._config['multi_query']
+    n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
     source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
-    assert mm_query is not None and len(source) == 2
+    assert n_emb > 1 and prob_emb and mm_query is not None and len(source) == 2
     # for MMPE: use only 1 sample as the mean of gaussian 
     im_mu, im_logsig = out['image']['embedding'], out['image']['logsigma']
     txt_mu, txt_logsig = out[source[1]]['embedding'], out[source[1]]['logsigma']
-    mu, logsig, log_z = product_2_gaussians(m_mu, im_logsig, txt_mu, txt_logsig)
+    mu, logsig, log_z = product_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
     text_mu, text_logsigma = out[target]['embedding'], out[target]['logsigma']
 
     i2t, recall, _ = mmpe_loss(mu, logsig, log_z, text_mu, text_logsigma, torch.zeros_like(log_z), n=n_emb, recall=True)
@@ -182,17 +208,20 @@ def compute_mmpe(mopdel, out):
 
 def compute_vib(model, out):
     vl = model._config['vib_lambda']
-    mm_query = model._config['multi_query']
+    n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
     source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
-    assert (mm_query is None and len(source) == 1) or (mm_query is not None and len(source) == 2)
+    assert n_emb > 1 and prob_emb and ((mm_query is None and len(source) == 1) or (mm_query is not None and len(source) == 2))
     if mm_query is None:
         image_mu, image_logsig = out['image']['embedding'].mean(dim=1), out['image']['logsigma']
-    elif mm_query == 'addition':
+    else:
         im_mu, im_logsig = out['image']['embedding'].mean(dim=1), out['image']['logsigma']
         txt_mu, txt_logsig = out[source[1]]['embedding'].mean(dim=1), out[source[1]]['logsigma']
-        image_mu, image_logsig, log_z = addition_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
-    else:
-        raise ValueError("Invalid query composition.")
+        if mm_query == 'addition':
+            image_mu, image_logsig, _ = addition_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
+        elif mm_query == 'mixture':
+            image_mu, image_logsig, _ = mixture_2_gaussians(im_mu, im_logsig, txt_mu, txt_logsig)
+        else:
+            raise ValueError("Invalid query composition.")
     text_mu, text_logsig = out[target]['embedding'].mean(dim=1), out[target]['logsigma']
     vib_loss = kl_divergence(image_mu, image_logsig) + kl_divergence(text_mu, text_logsig)
     ret = {

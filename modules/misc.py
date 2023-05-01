@@ -117,10 +117,10 @@ class PCMENet(nn.Module):
         if self.prob_embed:
             # TODO: Consider to FIX the variance
             logsig, attn = self.uncertain_net(torch.mean(x, dim=1), x, mask)  # logsig: no_LN(cls+residual) (b, 1, d_embed)
+            out['mu_embeding'] = x_attn
             out['logsigma'] = logsig
             out['sigma_attention'] = attn
             if self.n_embed > 1:
-                out['mu_embeding'] = x_attn
                 x = sample_gaussian_tensors(x_attn, logsig, self.n_embed)
             else:
                 x = x_attn
