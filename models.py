@@ -21,7 +21,7 @@ class Model(nn.Module):
 			if self.text_encoder is not None:
 				self.text_pooler = get_text_pooler(d_txt, _config)
 		# import pudb; pu.db
-		# self.fuser = None
+		self.fuser = get_fuser(_config)
 
 	def encode(self, batch):
 		X_encode = dict()
@@ -33,7 +33,8 @@ class Model(nn.Module):
 			X_encode.update({k: self.encode_text(batch, k)})
 			for k in TEXT_ENCODER_KEYS if k in batch
 		]
-
+		if self.fuser is not None:
+			X_encode = self.fuser(X_encode)
 		[
 			X_encode.update({k: {
 				f'{k}_id': batch[f'{k}_id'], 
@@ -52,6 +53,7 @@ class Model(nn.Module):
 			X_encode.update(ret)
 		X_encode['embedding'] = X
 		X_encode['cls_embedding'] = X_cls
+		X_encode['mask'] = torch.ones(X.shape[:2], device=X.device).long()
 		return X_encode
 
 	def encode_text(self, batch, k):
@@ -70,14 +72,16 @@ class Model(nn.Module):
 			X = X.last_hidden_state
 			mask_expanded = text_mask.unsqueeze(-1).expand(X.size()).float()
 			X_cls = torch.sum(X * mask_expanded, dim=1)/ mask_expanded.sum(dim=1)
-			X_mask = ~text_mask.bool()
+			X_mask = text_mask.bool()
 		else:
 			X, X_cls, X_mask = self.text_encoder(text_id, mask=text_mask, pool=self.to_pool)
 		if self.to_pool:
 			X, ret = self.text_pooler(X_cls, X, mask=X_mask)
+			X_mask = torch.ones(X.shape[:2], device=X.device).long()
 			X_encode.update(ret)
 		X_encode['embedding'] = X
 		X_encode['cls_embedding'] = X_cls
+		X_encode['mask'] = X_mask.long()
 		return X_encode
 
 	def decode(self, X_encode):

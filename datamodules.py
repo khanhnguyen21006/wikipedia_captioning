@@ -51,7 +51,7 @@ class DataModule(LightningDataModule):
                 self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False)
                 self.test_sampler = DistributedSampler(self.test_dataset, shuffle=False)
             else:
-                self.train_sampler = RandomSampler(self.train_dataset)
+                self.train_sampler = SequentialSampler(self.train_dataset)
                 self.val_sampler = None
                 self.test_sampler = None
 

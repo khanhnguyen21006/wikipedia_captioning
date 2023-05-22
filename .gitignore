@@ -3,3 +3,7 @@ modules/__pycache__/
 utils/__pycache__/
 result
 .cache/
+utils/.ipynb_checkpoints/
+utils/figures/
+utils/ema.ipynb
+utils/visualize_utils.py

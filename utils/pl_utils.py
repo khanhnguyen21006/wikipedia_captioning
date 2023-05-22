@@ -19,13 +19,7 @@ def set_metrics(pl_module):
 		for k, v in pl_module.hparams._config["losses"].items():
 			if v < 1:
 				continue
-			if k == "lm":
-				setattr(pl_module, f"{split}_lm_loss", Scalar())
-			elif k == "wd":
-				setattr(pl_module, f"{split}_wd_loss", Scalar())
-			elif k == "div":
-				setattr(pl_module, f"{split}_div_loss", Scalar())
-			elif k == "pe" or k == "de":
+			if k == "pe" or k == "de":
 				setattr(pl_module, f"{split}_{k}_loss", Scalar())
 				setattr(pl_module, f"{split}_i2t", Scalar())
 				setattr(pl_module, f"{split}_t2i", Scalar())
@@ -33,12 +27,41 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_i2t_neg", Scalar())
 				setattr(pl_module, f"{split}_t2i_pos", Scalar())
 				setattr(pl_module, f"{split}_t2i_neg", Scalar())
+			elif k == "tripe":
+				setattr(pl_module, f"{split}_tripe_loss", Scalar())
+				setattr(pl_module, f"{split}_i2s", Scalar())
+				setattr(pl_module, f"{split}_s2i", Scalar())
+				setattr(pl_module, f"{split}_i2d", Scalar())
+				setattr(pl_module, f"{split}_d2i", Scalar())
+				setattr(pl_module, f"{split}_d2s", Scalar())
+				setattr(pl_module, f"{split}_s2d", Scalar())
+				setattr(pl_module, f"{split}_i2s_pos", Scalar())
+				setattr(pl_module, f"{split}_i2s_neg", Scalar())
+				setattr(pl_module, f"{split}_s2i_pos", Scalar())
+				setattr(pl_module, f"{split}_s2i_neg", Scalar())
+				setattr(pl_module, f"{split}_i2d_pos", Scalar())
+				setattr(pl_module, f"{split}_i2d_neg", Scalar())
+				setattr(pl_module, f"{split}_d2i_pos", Scalar())
+				setattr(pl_module, f"{split}_d2i_neg", Scalar())
+				setattr(pl_module, f"{split}_s2d_pos", Scalar())
+				setattr(pl_module, f"{split}_s2d_neg", Scalar())
+				setattr(pl_module, f"{split}_d2s_pos", Scalar())
+				setattr(pl_module, f"{split}_d2s_neg", Scalar())
+				setattr(pl_module, f"{split}_vib_loss", Scalar())
+				setattr(pl_module, f"{split}_image_volume", Scalar())
+				setattr(pl_module, f"{split}_description_volume", Scalar())
+				setattr(pl_module, f"{split}_section_volume", Scalar())
 			elif k == "mmpe":
 				setattr(pl_module, f"{split}_mmpe_loss", Scalar())
 				setattr(pl_module, f"{split}_i2t", Scalar())
 				setattr(pl_module, f"{split}_t2i", Scalar())
 				setattr(pl_module, f"{split}_logsig_l2_loss", Scalar())
-				setattr(pl_module, f"{split}_r1_per_batch", Scalar())
+				setattr(pl_module, f"{split}_r@1_per_batch", Scalar())
+			elif k == "se":
+				setattr(pl_module, f"{split}_{k}_loss", Scalar())
+				setattr(pl_module, f"{split}_i2t", Scalar())
+				setattr(pl_module, f"{split}_t2i", Scalar())
+				setattr(pl_module, f"{split}_r@1_per_batch", Scalar())
 			elif k == "vib":
 				setattr(pl_module, f"{split}_vib_loss", Scalar())
 				setattr(pl_module, f"{split}_image_volume", Scalar())
@@ -56,39 +79,20 @@ def epoch_wrapup(pl_module):
 			continue
 
 		value = 0
-
-		if loss == "lm":
-			lm_loss = getattr(pl_module, f"{phase}_lm_loss").compute()
+		if loss == "tripe":
+			tripe_loss = getattr(pl_module, f"{phase}_tripe_loss").compute()
 			pl_module.log(
-				f"lm/{phase}/loss_epoch",
-				lm_loss,
+				f"tripe/{phase}/loss_epoch",
+				tripe_loss,
 			)
-			getattr(pl_module, f"{phase}_lm_loss").reset()
-			value = lm_loss
-		elif loss == "wd":
-			wd_loss = getattr(pl_module, f"{phase}_wd_loss").compute()
+			getattr(pl_module, f"{phase}_tripe_loss").reset()
+			vib_loss = getattr(pl_module, f"{phase}_vib_loss").compute()
 			pl_module.log(
-				f"wd/{phase}/loss_epoch",
-				wd_loss,
+				f"tripe/{phase}/vib_loss_epoch",
+				vib_loss,
 			)
-			getattr(pl_module, f"{phase}_wd_loss").reset()
-			value = wd_loss
-		elif loss == "div":
-			div_loss = getattr(pl_module, f"{phase}_div_loss").compute()
-			pl_module.log(
-				f"div/{phase}/loss_epoch",
-				div_loss,
-			)
-			getattr(pl_module, f"{phase}_div_loss").reset()
-			value = div_loss
-		elif loss == "pe" or loss == "de":
-			loss_val = getattr(pl_module, f"{phase}_{loss}_loss").compute()
-			pl_module.log(
-				f"{loss}/{phase}/loss_epoch",
-				loss_val,
-			)
-			getattr(pl_module, f"{phase}_{loss}_loss").reset()
-			value = loss_val
+			getattr(pl_module, f"{phase}_vib_loss").reset()
+			value = tripe_loss + vib_loss
 		elif loss == "mmpe":
 			mmpe_loss = getattr(pl_module, f"{phase}_mmpe_loss").compute()
 			pl_module.log(
@@ -103,14 +107,6 @@ def epoch_wrapup(pl_module):
 			)
 			getattr(pl_module, f"{phase}_logsig_l2_loss").reset()
 			value = mmpe_loss + logsig_l2_loss
-		elif loss == "vib":
-			vib_loss = getattr(pl_module, f"{phase}_vib_loss").compute()
-			pl_module.log(
-				f"vib/{phase}/loss_epoch",
-				vib_loss,
-			)
-			getattr(pl_module, f"{phase}_vib_loss").reset()
-			value = vib_loss
 		else:
 			loss_val = getattr(pl_module, f"{phase}_{loss}_loss").compute()
 			pl_module.log(

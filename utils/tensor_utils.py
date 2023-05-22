@@ -4,7 +4,6 @@ import numpy as np
 def batchwise_cosine_distance(x, y, eps=1e-6):
     if len(x.size()) != 3 or len(y.size()) != 3:
         raise RuntimeError('expected: 3-dim tensors, got: {}, {}'.format(x.size(), y.size()))
-
     if x.size(0) == y.size(0):
         bs = x.size(0)
     elif x.size(0) == 1:
@@ -13,7 +12,6 @@ def batchwise_cosine_distance(x, y, eps=1e-6):
         bs = x.size(0)
     else:
         raise RuntimeError(f'x ({x.size()}) and y ({y.size()}) dimensionalities are non-broadcastable.')
-
     x = x.unsqueeze(1)
     y = y.unsqueeze(2)
     return torch.sqrt(((x - y) ** 2).sum(-1) + eps).view(bs, -1)
@@ -35,8 +33,7 @@ def pairwise_sampling(anchors, candidates):
     anchors = anchors[anchor_idx]
     selected = candidates[selected_idx]
 
-    cdist = batchwise_cosine_distance(anchors, selected)
-    return cdist, matched
+    return anchors, selected, matched
 
 def full_sampling(n):
     candidates = []
@@ -88,9 +85,45 @@ def addition_2_gaussians(mu1, logsig1, mu2, logsig2):
 
 def mixture_2_gaussians(mu1, logsig1, mu2, logsig2):
     sig1, sig2 = torch.exp(logsig1), torch.exp(logsig2)
-    mu = torch.mean(mu1 + mu2, dim=1)
-    logsig = torch.log(torch.mean(sig1 + torch.square(mu1) + sig2 + torch.square(mu2), dim=1) - torch.square(mu))
+    mu = (mu1 + mu2)/2
+    logsig = torch.log(
+        (sig1 + torch.square(mu1) + sig2 + torch.square(mu2))/2 - torch.square(mu)
+    )
     return mu, logsig, torch.zeros(mu1.shape[0], device='cuda')
+
+def log_gaussian(x, mu=0, logsig=0.):
+    z = -0.5 * np.log(2 * np.pi)
+    if type(logsig) == 'float':
+        logsig = x.new(1).fill_(logsig)
+
+    a = (x - mu) ** 2
+    log_p = -0.5 * (logsig + a / logsig.exp())
+    log_p = log_p + z
+    return log_p
+
+def log_1d_mixture_gaussian(x, om, mu, logsig, log=True):
+    """
+        :param x: design matrix (b, m)
+        :param om: the weight of each components (b, h, n, K)
+        :param mu: the component means (b, h, n, K)
+        :param logvar: the component log-variances (b, h, n, K)
+        :param log: return value in log domain?
+            Note: exponentiating can be unstable in high dimensions.
+        :return likelihoods: (b, h, n)
+    """
+    # feature-wise log-likelihoods
+    
+    log_p = log_gaussian(
+        x[:, None, None, :, None],  # (b, 1, 1, m, 1)
+        mu[:, :, :, None ,:],  # (b, h, n, 1, K)
+        logsig[:, :, :, None ,:]  # (b, h, n, 1, K)
+    ) # (b, h, n, m, K)
+   
+    log_p = (om.[:, :, :, None ,:] * log_p).sum(-1) # (b, h, n, m)
+    assert ~any(log_p < 0)
+    if not log:
+        log_p = log_p.exp()
+    return log_p
 
 def trace(x):
     b, m, n = x.size()
@@ -124,6 +157,15 @@ def find_index(x, y):
     pad_ones = torch.ones(y.size(0), y.size(1) - 1)
     update_index = torch.cat([tmp_idx.unsqueeze(-1), pad_ones.long()], dim=-1)
     return torch.cumsum(update_index, dim=1)
+
+def gelu(x):
+    """
+        Implementation of the gelu activation function.
+        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
+        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+        Also see https://arxiv.org/abs/1606.08415
+    """
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))\
 
 def distributed_all_gather(x):
     """

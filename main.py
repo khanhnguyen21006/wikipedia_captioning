@@ -1,5 +1,6 @@
 import os
 import copy
+import json
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.utilities.model_summary import ModelSummary
@@ -75,3 +76,7 @@ def main(_config):
         trainer.fit(model, datamodule=data_module, ckpt_path=_config["ckpt_path"])
     else:
         trainer.test(model, datamodule=data_module, ckpt_path=_config["ckpt_path"])
+
+    print(f"Saving config file to {trainer.logger.log_dir}/config.json")
+    with open(os.path.join(trainer.logger.log_dir, 'config.json'), 'w') as f:
+        json.dump(_config, f, indent=4)

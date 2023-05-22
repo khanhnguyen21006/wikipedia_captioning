@@ -8,7 +8,7 @@ from transformers import GPT2Config, GPT2LMHeadModel,\
 						T5Config, T5ForConditionalGeneration,\
 						ViTModel, CLIPVisionModel,\
 						AutoModel
-
+import logging
 from .data_pool import get_tokenizer, Vocabulary
 from utils import GPT2_ADAPTER_LAYERS, T5_ADAPTER_LAYERS
 
@@ -41,11 +41,14 @@ def get_text_encoder(_config):
 	"""
 	Text Encoders experimented:
 		- RoBERTa pre-trained ('roberta-base')
-		- SentenceTransformers pre-trained ('sentence-transformers/all-distilroberta-v1', 'sentence-transformers/sentence-t5')
+		- SentenceTransformers pre-trained ('sentence-transformers/all-distilroberta-v1',
+														 'sentence-transformers/sentence-t5')
 	"""
 	_name = _config['text_encoder']
 	embed_dim = _config['embed_dim']
 	finetune = _config["text_encoder_finetune"]
+	if _name is None:
+		return None, None
 	if _name == 'roberta':
 		model = RoBERTa(embed_dim, finetune)
 		dim = model.d
@@ -58,8 +61,6 @@ def get_text_encoder(_config):
 	elif _name == 'gru':
 		model = GRU(**_config)
 		dim = _config['text_dim']
-	elif _name is None:
-		return None, None
 	else:
 		raise ValueError(f"{_name} Text Encoder is not supported.")
 	_config['text_encoder_dim'] = dim
@@ -68,11 +69,14 @@ def get_text_encoder(_config):
 def get_text_decoder(_config):
 	_name = _config['text_decoder']
 	finetune = _config["text_decoder_finetune"]
+	if _name is None:
+		return None, None
 	if _name == 'gpt2':
 		cfg = GPT2Config.from_pretrained('gpt2')
 		model = GPT2(cfg, get_tokenizer(_name), finetune)
 		dim = cfg.n_embd
 	elif _name == 'gpt2++':
+		assert _config['n_embed'] == 0, f"This model allows no pooling by design, invalid n_embed: {_config['n_embed']} "
 		cfg = GPT2Config.from_pretrained('gpt2')
 		model = GPT2pp(cfg, get_tokenizer(_name), finetune)
 		dim = cfg.n_embd
@@ -81,14 +85,13 @@ def get_text_decoder(_config):
 		model = GPT2Adapter(cfg, get_tokenizer(_name), finetune)
 		dim = cfg.n_embd
 	elif _name == 't5++':
+		assert _config['n_embed'] == 0, f"This model allows no pooling by design, invalid n_embed: {_config['n_embed']} "
 		model = T5(finetune)
 		dim = T5Config.from_pretrained('t5-base').d_model
 	elif _name == 'otp':
 		pass
 	elif _name == 'otp-adapter':
 		pass
-	elif _name is None:
-		return None, None
 	else:
 		raise ValueError(f"{_name} Text Decoder is not supported.")
 	return model, dim
@@ -101,8 +104,8 @@ def vilt_init_weights(module):
 	if isinstance(module, (nn.Linear, nn.Embedding)):
 		module.weight.data.normal_(mean=0.0, std=0.02)
 	elif isinstance(module, nn.LayerNorm):
-		module.bias.data.zero_()
 		module.weight.data.fill_(1.0)
+		module.bias.data.zero_()
 
 def set_finetune(module, ft):
 	if module is None:
@@ -147,7 +150,7 @@ class GPT2(nn.Module):
 
 	def generate(self, **kwargs):
 		kwargs = self.prepare_generate(**kwargs)
-		X = self.embed(kwargs['X'])
+		X = kwargs['X']
 		X_in = kwargs['X_in']
 
 		generations = []
@@ -180,9 +183,8 @@ class GPT2(nn.Module):
 		X_image = kwargs['image']['embedding']
 		X_text = kwargs['section']['embedding']
 		X_in = torch.cat([X_image, X_text], dim=1)
-		bs, ml = X_in.size(0), X_in.size(1)
-		in_mask = torch.ones((bs, ml), dtype=torch.long, device=X_in.device)
-		in_label = in_mask * (-100)
+		in_mask = torch.cat([kwargs['image']['mask'], kwargs['section']['mask']], dim=1)
+		in_label = torch.ones_like(in_mask) * (-100)
 
 		kwargs = {
 			'X': X,
@@ -195,11 +197,11 @@ class GPT2(nn.Module):
 		return kwargs
 
 	def prepare_generate(self, **kwargs):
-		X = kwargs['prompt']['prompt_id']
+		X = self.embed(kwargs['prompt']['prompt_id'])
 		X_image = kwargs['image']['embedding']
-		X_text = kwargs['section']['embedding']
+		X_text = kwargs['section']['embedding'][kwargs['section']['mask']]
 		X_in = torch.cat([X_image, X_text], dim=1)
-
+		
 		X = {
 			'X': X,
 			'X_in': X_in,
@@ -290,16 +292,19 @@ class GPT2Adapter(GPT2):
 
 	def forward(self, **kwargs):
 		kwargs = self.prepare_forward(**kwargs)
-		X, X_in, X_mask, X_label = kwargs['X'], kwargs['X_in'], kwargs['X_mask'], kwargs['X_label']
+		X_in, in_mask = kwargs['X_in'], kwargs['in_mask']
+		X, X_mask, X_label = kwargs['X'], kwargs['X_mask'], kwargs['X_label']
 		X = self.gpt2(X,
 					attention_mask=X_mask,
 					labels=X_label,
-					encoder_hidden_states=X_in)
+					encoder_hidden_states=X_in,
+					encoder_attention_mask=in_mask,)
 		return X, X_label
 
 	def generate(self, **kwargs):
 		kwargs = self.prepare_generate(**kwargs)
 		X_in = kwargs['X_in']
+		in_mask = kwargs['in_mask']
 
 		generations = []
 		tokenizer = kwargs['tokenizer']
@@ -316,7 +321,8 @@ class GPT2Adapter(GPT2):
 					pad_token_id=tokenizer.pad_token_id,
 					eos_token_id=tokenizer.eos_token_id,
 					forced_eos_token_id=tokenizer.eos_token_id,
-					encoder_hidden_states=kwargs['X_in'][i].unsqueeze(0))
+					encoder_hidden_states=kwargs['X_in'][i].unsqueeze(0),
+					encoder_attention_mask=in_mask[i].unsqueeze(0),)
 			X_gen_id = X_gen[0].tolist()
 			start, end = X_gen_id.index(tokenizer.bos_token_id)+1, X_gen_id.index(tokenizer.eos_token_id)
 			generations.append(tokenizer.decode(X_gen[0][start:end], skip_special_tokens=False).strip())
@@ -324,11 +330,14 @@ class GPT2Adapter(GPT2):
 
 	def prepare_generate(self, **kwargs):
 		X = kwargs['prompt']['prompt_id']
-		X_in = torch.cat([kwargs['image']['embedding'], kwargs['section']['embedding']], dim=1)
+		X_image = kwargs['image']['embedding']
+		X_in = torch.cat([X_image, kwargs['section']['embedding']], dim=1)
+		in_mask = torch.cat([kwargs['image']['mask'], kwargs['section']['mask']], dim=1)
 
 		kwargs = {
 			'X': X,
 			'X_in': X_in,
+			'in_mask': in_mask,
 			'tokenizer': kwargs['dec_tokenizer'].tokenizer,
 			'max_len': kwargs['text_max_len']
 		}
@@ -418,6 +427,7 @@ class T5Adapter(T5):
 		kwargs = self.prepare_forward(**kwargs)
 		X_in, X_label= kwargs['X_in'], kwargs['X_label']
 		X = self.t5(encoder_outputs=(X_in,),
+					attention_mask=kwargs['in_mask'],
 					labels=X_label)
 		return X, X_label
 	def generate(self, **kwargs):
@@ -438,24 +448,18 @@ class T5Adapter(T5):
 	def prepare_forward(self, **kwargs):
 		X_label = kwargs['caption']['caption_id']
 		X_label[X_label == 0] = -100
-		X_image = kwargs['image']['embedding']
-		X_text = kwargs['section']['embedding']
-		X_in = torch.cat([X_image, X_text], dim=1)
-
+		X_in = torch.cat([kwargs['image']['embedding'], kwargs['section']['embedding']], dim=1)
+		in_mask = torch.cat([kwargs['image']['mask'], kwargs['section']['mask']], dim=1)
 		kwargs = {
 			'X_in': X_in,
+			'in_mask': in_mask,
 			'X_label': X_label
 		}
 		return kwargs
 
 	def prepare_generate(self, **kwargs):
-		X_image = kwargs['image']['embedding']
-		X_text = kwargs['section']['embedding']
-		X_in = torch.cat([X_image, X_text], dim=1)
-		bs, iml, tml = X_image.size(0), X_image.size(1), X_text.size(1)
-		image_mask = torch.ones((bs, iml), dtype=torch.long, device=X_image.device)
-		text_mask = torch.ones((bs, tml), dtype=torch.long, device=X_text.device)
-		in_mask = torch.cat([image_mask, text_mask], dim=1)
+		X_in = torch.cat([kwargs['image']['embedding'], kwargs['section']['embedding']], dim=1)
+		in_mask = torch.cat([kwargs['image']['mask'], kwargs['section']['mask']], dim=1)
 		kwargs = {
 			'X_in': X_in,
 			'in_mask': in_mask,
@@ -564,7 +568,7 @@ class SentenceTransformers(nn.Module):
 		else:
 			X = self.fc(X)
 			X_cls = mean_pool(X, kwargs['mask'])
-		X_mask = ~kwargs['mask'].bool()
+		X_mask = kwargs['mask'].bool()
 		return X, X_cls, X_mask
 
 class RoBERTa(nn.Module):
@@ -589,7 +593,7 @@ class RoBERTa(nn.Module):
 		else:
 			X = self.fc(X)
 			X_cls = mean_pool(X, kwargs['mask'])
-		X_mask = ~kwargs['mask'].bool()
+		X_mask = kwargs['mask'].bool()
 		return X, X_cls, X_mask
 
 class GRU(nn.Module):
@@ -642,5 +646,5 @@ class GRU(nn.Module):
 		for b in range(X.size(0)):
 			X_cls.append(padded[0][b][X_len[b] - 1, :])
 		X_cls = torch.stack(X_cls)
-		X_mask = ~X_mask.bool()
+		X_mask = X_mask.bool()
 		return X, X_cls, X_mask

@@ -151,15 +151,16 @@ def get_collate_hparams(_config):
 
 	has_encoder = encoder is not None
 	has_decoder = decoder is not None
-	is_gpt2_decoder = has_decoder and 'gpt2' in decoder
-	is_gpt2pp_decoder = has_decoder and 'gpt2++' == decoder
-	use_adapter = (has_encoder and 'adapter' in encoder) or (has_decoder and 'adapter' in decoder)
+	use_gpt2_decoder = has_decoder and 'gpt2' in decoder
+	use_t5_decoder = has_decoder and 't5' in decoder
+	use_gpt2pp_decoder = has_decoder and 'gpt2++' == decoder
+	use_adapter = (encoder == 't5-adapter') or (decoder == 'gpt2-adapter')
 
 	vocab_path = _config["vocab_path"]
 	enc_tokenizer = get_tokenizer(encoder if has_encoder else decoder, path=vocab_path)
 	dec_tokenizer = get_tokenizer(decoder if has_decoder else encoder, path=vocab_path)
 
-	if not use_adapter: # for non-adapter models, images are processed separately
+	if not use_adapter and (use_gpt2_decoder or use_t5_decoder):  # for non-adapter models, images are processed separately
 		if image_size == 256:
 			text_ml = text_ml - 64
 		elif image_size == 224:
@@ -167,11 +168,11 @@ def get_collate_hparams(_config):
 
 	if name == "wit":
 		context_keys = ['description', 'section'] \
-						+ (WIT_COMPOSITION if is_gpt2pp_decoder else [])
+						+ (WIT_COMPOSITION if use_gpt2pp_decoder else [])
 	else:
 		context_keys = ['section'] \
-						+ (COMPOSITION if is_gpt2pp_decoder else [])
-	target_keys = ['caption'] + (['prompt'] if is_gpt2_decoder else [])
+						+ (COMPOSITION if use_gpt2pp_decoder else [])
+	target_keys = ['caption'] + (['prompt'] if use_gpt2_decoder else [])
 
 	return {
 		'enc_tokenizer': enc_tokenizer,
