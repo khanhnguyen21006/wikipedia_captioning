@@ -116,6 +116,80 @@ def mmpe_loss(mu1, logsig1, z1, mu2, logsig2, z2, n=7, reduction='mean', recall=
         return loss, recall, F.softmax(logits, dim=-1)
     return loss
 
+def ntxent_loss(x, y, mat=None, x_mask=None, y_mask=None, T=0.1, reduction='mean'):
+    """
+        InfoNCE loss for cross-modality matching, following https://arxiv.org/abs/1807.03748v2.
+        Negatives are implicitly off-diagonal positives.
+        x: (b, d) or (b, n, d)
+        y: (b, d) or (b, m, d)
+        x_mask: (b, n), y_mask: (b, m)
+        1. compute cosine matrix
+        2. compute numerator (this is repeated from 1. but escape passing seperate pos/neg tensors)
+        3. compute denomerator based on 1.
+        4. compute loss
+    """
+    if len(x) != len(y) or x.size(-1) != y.size(-1):
+        raise ValueError('x and y must have same first and last dimension.')
+    if len(x.size()) not in [2, 3] or len(y.size()) not in [2, 3]:
+        raise ValueError('Only support 2or3-dimension tensor.')
+
+    # Assume all the tensors are l2 normalized
+    if len(x.size()) == 3 and len(y.size()) == 3:
+        assert x_mask != None and x_mask.size() == x.size()[:2]
+        assert y_mask != None and y_mask.size() == y.size()[:2]
+        if mat == None:
+            mat = x.reshape(-1, x.size(-1)) @ y.reshape(-1, y.size(-1)).transpose(-2, -1)  # (b*n, b*m)
+
+        # mat1 = mat.masked_fill_(~y_mask.flatten(), -np.inf)  # (b*n, b*m)
+        # pos1 = torch.bmm((x, y.transpose(-2, -1)), dim=2)  # (b, n, m)
+        pos1_mask = torch.block_diag(*y_mask)  # (b, b*m)
+        pos1 = mat.masked_fill(~pos1_mask, -np.inf)  # (b*n, b*m)
+        neg1_mask = y_mask.flatten()  # (b*m)
+        neg1 = mat.masked_fill(~neg1_mask, -np.inf)  # (b*n, b*m)
+
+        pos1 = torch.logsumexp(pos1[x_mask] - torch.max(pos1[x_mask], dim=-1)[0].unsqueeze(1).detach(), dim=-1)  # (some dim0)
+        neg1 = torch.logsumexp(neg1[x_mask] - torch.max(neg1[x_mask], dim=-1)[0].unsqueeze(1).detach(), dim=-1)  # (some dim0)
+        loss1 = (neg1 - pos1).mean()
+
+        pos2_mask = torch.block_diag(*x_mask).transpose(0, 1)  # (b*n, b)
+        pos2 = mat.masked_fill(~pos2_mask, -np.inf)  # (b*n, b*m)
+        neg2_mask = x_mask.flatten().transpose(0, 1)  # (b*n)
+        neg2 = mat.masked_fill(~neg2_mask, -np.inf)  # (b*n, b*m)
+
+        pos2 = torch.logsumexp(pos2[y_mask] - torch.max(pos2[y_mask], dim=-1)[0].unsqueeze(1).detach(), dim=-1)  # (some dim1)
+        neg2 = torch.logsumexp(neg2[y_mask] - torch.max(neg2[y_mask], dim=-1)[0].unsqueeze(1).detach(), dim=-1)  # (some dim1)
+        loss2 = (neg2 - pos2).mean()
+
+        loss = (loss1 + loss2)/2
+    elif len(x.size()) == 2 and len(y.size()) == 3:
+        assert y_mask != None and y_mask.size() == y.size()[:2]
+        if mat == None:
+            mat = x @ y.reshape(-1, y.size(-1)).transpose(0, 1)  # (b, b*m)
+
+        # pos = torch.sum((x[:, None, :] * y), dim=2)  # (b, m)
+        pos_mask = torch.block_diag(*y_mask)  # (b, b*m)
+        pos = mat.masked_fill(~pos_mask, -np.inf)  # (b, b*m)
+        neg_mask = y_mask.flatten()  # (b*m)
+        neg = mat.masked_fill(~neg_mask, -np.inf)  # (b, b*m)
+
+        pos = torch.logsumexp(pos - torch.max(pos, dim=-1)[0].unsqueeze(1).detach(), dim=-1)  # (b)
+        neg = torch.logsumexp(neg - torch.max(neg, dim=-1)[0].unsqueeze(1).detach(), dim=-1)  # (b)
+        loss1 = (neg - pos).mean()
+
+        logit = mat[:, y_mask.flatten()].transpose(0, 1)  # (some dim ,b)
+        label = torch.arange(len(y), device=y.device).unsqueeze(1).expand_as(y_mask)[y_mask].flatten()  # (some dim)
+        loss2 = F.cross_entropy(logit, label, reduction=reduction)
+
+        loss = (loss1 + loss2)/2
+    elif len(x.size()) == 2 and len(y.size()) == 2:
+        logit = x @ y.transpose(-2, -1)  if mat == None else mat # (b, b)
+        label = torch.arange(len(x), device=x.device)
+        loss = (F.cross_entropy(logit/T, label, reduction=reduction) + 
+                    F.cross_entropy(logit.transpose(0, 1)/T, label, reduction=reduction))/2
+    else:
+        raise ValueError('Invalid combination.')
+    return loss
+
 @torch.no_grad()
 def retrieve_wrapup(pl_module):
     """
@@ -200,13 +274,17 @@ def retrieve_wrapup(pl_module):
         cosine_kk = cosine_kk.view(n_query, n_emb, n_query, n_emb)
         cosine_kk = cosine_kk.permute(0, 1, 3, 2).contiguous()
         cosine_kk = cosine_kk.view(n_query, -1, n_query)
-        ret_matrix, _ = ret_matrix.max(dim=1)
+        ret_matrix, _ = cosine_kk.max(dim=1)
     elif _config['eval_method'] == 'smooth_chamfer':
         assert n_emb > 1
         alpha = pl_module.model._config['chamfer_alpha']
         image_emb = F.normalize(buffer['image_emb'], dim=-1)
         text_emb = F.normalize(buffer['text_emb'], dim=-1)
         ret_matrix = smooth_chamfer_loss(image_emb, text_emb, alpha, return_score=True)
+    elif 'mse_space' in _config['eval_method']:
+        s = int(_config['eval_method'].split('_')[-1])
+        assert s < n_emb, f"Invalid evaluation method: {_config['eval_method']}."
+        ret_matrix = buffer['image_emb'][:, s, :] @ buffer['text_emb'][:, s, :].t()
     else:
         raise f"Method {_config['eval_method']} is not supported for evaluation."
 
@@ -217,7 +295,7 @@ def retrieve_wrapup(pl_module):
     print("t2i retrieval: ", t2i)
 
     if torch.distributed.get_rank() == 0:
-        if not n_emb > 1 and not prob_emb:
+        if not n_emb > 1 or not prob_emb:
             return
         expt_path = os.path.join(
             _config['result_dir'], 'inference', _config['expt_name'], 'retrieve'

@@ -5,6 +5,7 @@ import h5py
 import json
 import os
 import re
+import numpy as np
 
 from pycocotools.coco import COCO
 from PIL import Image
@@ -29,7 +30,7 @@ class BaseDataset(abc.ABC, torch.utils.data.Dataset):
 
     @abc.abstractmethod
     def load_data(self):
-        pass
+        raise NotImplementedError
 
     def __len__(self):
         return self.d_size
@@ -187,7 +188,7 @@ class WitToyDataset(BaseDataset):
         self.split = split
         assert split in {'train', 'val', 'test'}
 
-        super().__init__(*args, **kwargs)  
+        super().__init__(*args, **kwargs)
 
     def load_data(self):
         with open(os.path.join(self.d_folder, self.split + '_SENTDESCS_' + self.d_name + '.json'), 'r') as f:
@@ -242,6 +243,103 @@ class WitToyDataset(BaseDataset):
             sent += ' ' + s
         sent = sent.strip()
         return sent
+
+@BaseDataset.register
+class WitPageDataset(BaseDataset):
+    def __init__(self, split, *args, **kwargs):
+        self.split = split
+        assert split in {'train', 'val', 'test', 'test_1k_RET', 'test_5k_RET'}
+
+        super().__init__(*args, **kwargs)  
+
+    def load_data(self):
+        self.images = None
+        with h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_wit.hdf5'), 'r') as h:
+            self.d_size = len(h['images'])
+        with open(os.path.join(self.d_folder, self.split + '_STRDESCS_wit.json'), 'r') as f:
+            self.descriptions = json.load(f)
+        with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_wit.json'), 'r') as f:
+            self.contexts = json.load(f)
+        with open(os.path.join(self.d_folder, self.split + '_STRCAPS_wit.json'), 'r') as f:
+            self.captions = json.load(f)
+        with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_wit.json'), 'r') as f:
+            self.ids = json.load(f)
+        self.ret_mode = '_RET' in self.split
+        if not self.ret_mode:
+            with open(os.path.join(self.d_folder, self.split + '_IMAGEINPAGEIDS_wit.json'), 'r') as f:
+                self.image_in_page = json.load(f)
+            with open(os.path.join(self.d_folder, self.split + '_CONTEXTINPAGEIDS_wit.json'), 'r') as f:
+                self.context_in_page = json.load(f)
+
+    def open_h5py(self):
+        h = h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_wit.hdf5'), 'r')
+        self.images = h['images']
+
+    def __getitem__(self, i):
+        if self.images is None:
+            self.open_h5py()
+
+        image = self.images[i]
+        description = self.descriptions[i]
+        context = self.contexts[i]
+        caption = self.captions[i]
+        image_id = self.ids[i]
+
+        ret = {
+            'image_0': self.do_transform(image),
+            'image_id': image_id,
+            'description': description,
+            'section_0': context,
+            'caption': caption,
+        }
+        if not self.ret_mode:
+            ret.update(self.extend_context(i))
+        return ret
+
+    def do_transform(self, image):
+        if self.transform is not None:
+            image = self.transform(image.transpose(1, 2, 0))
+        return image
+
+    def extend_context(self, i):
+        ret = dict()
+        n_space = self.hparams["num_space"]
+        im_inpage = self.image_in_page[i]
+        sec_inpage = self.context_in_page[i]
+        if len(im_inpage) > (n_space - 1):
+            im_inpage = np.random.choice(im_inpage, size=n_space-1, replace=False)
+        else:
+            while len(im_inpage) < (n_space - 1):
+                im_inpage += [None]
+        if len(sec_inpage) > (n_space - 1):
+            sec_inpage = np.random.choice(sec_inpage, size=n_space-1, replace=False)
+        else:
+            while len(sec_inpage) < (n_space - 1):
+                sec_inpage += [None]
+        for _i in range(len(im_inpage)):
+            im_i = None if im_inpage[_i] == None else self.do_transform(self.images[im_inpage[_i]])
+            ret.update({f"image_{_i+1}": im_i})
+        for _i in range(len(sec_inpage)):
+            sec_i = None if sec_inpage[_i] == None else self.contexts[sec_inpage[_i]]
+            ret.update({f"section_{_i+1}": sec_i})
+        return ret
+
+    def collate(self, batch):
+        keys = set([key for b in batch for key in b.keys()])
+        image_keys = sorted([key for key in keys if 'image' in key and key not in ['image_id', 'image_url']])
+        section_keys = sorted([key for key in keys if 'section' in key])
+        dict_batch = {k: [b[k] if k in b else None for b in batch] for k in keys}
+
+        dict_batch['image_ext_mask'] = torch.tensor([_im != None for _key in image_keys for _im in dict_batch[_key]])
+        dict_batch['section_ext_mask'] = torch.tensor([_sec != None  for _key in section_keys for _sec in dict_batch[_key]])
+        dict_batch['section'] = [_sec for _key in section_keys for _sec in dict_batch[_key] if _sec is not None]
+        dict_batch['image'] = torch.stack([_im for _key in image_keys for _im in dict_batch[_key] if _im is not None])
+
+        for k in self.hparams['context_keys']:
+            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['enc_tokenizer'].tokenize(
+                    build_context(dict_batch, k), self.hparams['text_max_len']
+                )
+        return dict_batch
 
 @BaseDataset.register
 class GoodNewsDataset(BaseDataset):

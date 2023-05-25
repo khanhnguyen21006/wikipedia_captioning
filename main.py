@@ -77,6 +77,3 @@ def main(_config):
     else:
         trainer.test(model, datamodule=data_module, ckpt_path=_config["ckpt_path"])
 
-    print(f"Saving config file to {trainer.logger.log_dir}/config.json")
-    with open(os.path.join(trainer.logger.log_dir, 'config.json'), 'w') as f:
-        json.dump(_config, f, indent=4)

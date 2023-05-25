@@ -217,52 +217,6 @@ def compute_pe(model, out):
     }
     return ret
 
-def compute_tripe(model, out):
-    vl = model._config['vib_lambda']
-    n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
-    source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
-    assert n_emb > 1 and prob_emb and ((mm_query is None and len(source) == 2))
-
-    image_emb, image_logsig = out['image']['embedding'], out['image']['logsigma']
-    source1_emb, source1_logsig = out[source[1]]['embedding'], out[source[1]]['logsigma']
-    text_emb, text_logsig = out[target]['embedding'], out[target]['logsigma']
-    i2s = prob_emb_loss(image_emb, text_emb, model.si_scale, model.si_shift)
-    s2i = prob_emb_loss(text_emb, image_emb, model.si_scale, model.si_shift)
-    s2d = prob_emb_loss(text_emb, source1_emb, model.ds_scale, model.ds_shift)
-    d2s = prob_emb_loss(source1_emb, text_emb, model.ds_scale, model.ds_shift)
-    i2d = prob_emb_loss(image_emb, source1_emb, model.id_scale, model.id_shift)
-    d2i = prob_emb_loss(source1_emb, image_emb, model.id_scale, model.id_shift)
-    kl_image = kl_divergence(image_emb.mean(dim=1), image_logsig)
-    kl_source1 = kl_divergence(source1_emb.mean(dim=1), source1_logsig)
-    kl_text = kl_divergence(text_emb.mean(dim=1), text_logsig)
-
-    ret = {
-        'i2s': i2s['loss'].item(),
-        's2i': s2i['loss'].item(),
-        'd2s': d2s['loss'].item(),
-        's2d': s2d['loss'].item(),
-        'i2d': i2d['loss'].item(),
-        'd2i': d2i['loss'].item(),
-        'i2s_pos': i2s['pos_loss'].item(),
-        'i2s_neg': i2s['neg_loss'].item(),
-        's2i_pos': s2i['pos_loss'].item(),
-        's2i_neg': s2i['neg_loss'].item(),
-        'd2s_pos': d2s['pos_loss'].item(),
-        'd2s_neg': d2s['neg_loss'].item(),
-        's2d_pos': s2d['pos_loss'].item(),
-        's2d_neg': s2d['neg_loss'].item(),
-        'i2d_pos': i2d['pos_loss'].item(),
-        'i2d_neg': i2d['neg_loss'].item(),
-        'd2i_pos': d2i['pos_loss'].item(),
-        'd2i_neg': d2i['neg_loss'].item(),
-        'tripe_loss': ((i2s['loss'] + s2i['loss']+ i2d['loss'] + d2i['loss'])*2 + d2s['loss'] + s2d['loss'])/10,
-        'vib_loss': vl * (kl_image + kl_source1 + kl_text)/3,
-        'image_volume': torch.exp(torch.mean(image_logsig)).item(),
-        'description_volume': torch.exp(torch.mean(source1_logsig)).item(),
-        'section_volume': torch.exp(torch.mean(text_logsig)).item(),
-    }
-    return ret
-
 def compute_mmpe(mopdel, out):
     l2l = model._config['mmpe_l2_lambda']
     n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
@@ -331,3 +285,118 @@ def compute_se(model, out):
         'se_loss': (i2t + t2i)/2,
     }
     return ret
+
+def compute_ms(model, out, batch):
+    n_space =  model._config['n_embed']
+    source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
+    assert n_space == 3
+
+    image_emb, text_emb = out['image']['embedding'], out[target]['embedding']   
+    image_ext_mask, text_ext_mask = batch['image_ext_mask'], batch[f'{target}_ext_mask']
+    _bs, d = len(image_ext_mask) // n_space, model._config['embed_dim']
+
+    image_emb = F.normalize(image_emb, p=2, dim=-1)  # (upto(n*b), n, d)
+    text_emb = F.normalize(text_emb, p=2, dim=-1)  # (upto(n*b), n, d)
+
+    image_ext = torch.zeros(_bs*n_space, n_space, d).to(image_emb.device)
+    text_ext = torch.zeros(_bs*n_space, n_space, d).to(text_emb.device)
+    image_ext[image_ext_mask] = image_emb  # (n*b, n, d)
+    text_ext[text_ext_mask] = text_emb  # (n*b, n, d)
+    image_ext_mask = image_ext_mask.reshape(n_space, _bs)
+    text_ext_mask = text_ext_mask.reshape(n_space, _bs)
+
+    mat = image_ext.reshape(-1, d) @ text_ext.reshape(-1, d).transpose(-2, -1)  # (b*n*n, b*n*n)
+    mat = mat.reshape(_bs*n_space, n_space, _bs*n_space, n_space)  # (b*n, n, b*n, n)
+
+    ########## I2T: compare (in-batch)Images to (in-batch+extend1+extend2)Text ##########
+    # space0: (in-batch)Image Rep0 <-> (in-batch)Text Rep0
+    i2t_mat = mat
+    i2t_space0 = ntxent_loss(image_ext[:_bs, 0, :], text_ext[:_bs, 0, :], mat=i2t_mat[:_bs, 0, :_bs, 0])
+
+    # space1: (in-batch)Image Rep1 <-> (in-batch+extend1)Text Rep1
+    text_space1 = torch.cat([text_ext[:_bs, 1:2, :], text_ext[_bs:_bs*2, 1:2, :]], dim=1)  # (b, 2, d)
+    text_space1_mask = text_ext_mask[:2, :].transpose(0, 1) # (b, 2)
+    i2t_mat_space1 = torch.stack((i2t_mat[:_bs, 1, :_bs, 1], i2t_mat[:_bs, 1, _bs:_bs*2, 1]), dim=2).view(_bs, _bs*2)
+    i2t_space1 = ntxent_loss(image_ext[:_bs, 1, :], text_space1, mat=i2t_mat_space1, y_mask=text_space1_mask)
+
+    # space2: (in-batch)Image Rep2 <-> (in-batch+extend1+extend2)Text Rep2
+    text_space2 = torch.cat([text_ext[:_bs, 2:3, :], text_ext[_bs:_bs*2, 2:3, :], text_ext[_bs*2:_bs*3, 2:3, :]], dim=1)  # (b, 3, d)
+    text_space2_mask = text_ext_mask.transpose(0, 1) # (b, 3)
+    i2t_mat_space2 = torch.stack(
+        (i2t_mat[:_bs, 2, :_bs, 2], i2t_mat[:_bs, 2, _bs:_bs*2, 2], i2t_mat[:_bs, 2, _bs*2:_bs*3, 2]), dim=2
+    ).view(_bs, _bs*3)
+    i2t_space2 = ntxent_loss(image_ext[:_bs, 2, :], text_space2, mat=i2t_mat_space2, y_mask=text_space2_mask)
+
+    ########## T2I: compare (in-batch)Text to (in-batch+extend1+extend2)Images ##########
+    t2i_mat = mat.permute(2, 3, 0, 1)
+    t2i_space0 = ntxent_loss(text_ext[:_bs, 0, :], image_ext[:_bs, 0, :], mat=t2i_mat[:_bs, 0, :_bs, 0])
+
+    image_space1 = torch.cat([image_ext[:_bs, 1:2, :], image_ext[_bs:_bs*2, 1:2, :]], dim=1)  # (b, 2, d)
+    image_space1_mask = image_ext_mask[:2, :].transpose(0, 1) # (b, 2)
+    t2i_mat_space1 = torch.stack((t2i_mat[:_bs, 1, :_bs, 1], t2i_mat[:_bs, 1, _bs:_bs*2, 1]), dim=2).view(_bs, _bs*2)
+    t2i_space1 = ntxent_loss(text_ext[:_bs, 1, :], image_space1, mat=t2i_mat_space1, y_mask=image_space1_mask)
+
+    image_space2 = torch.cat([image_ext[:_bs, 2:3, :], image_ext[_bs:_bs*2, 2:3, :], image_ext[_bs*2:_bs*3, 2:3, :]], dim=1)  # (b, 3, d)
+    image_space2_mask = image_ext_mask.transpose(0, 1) # (b, 3)
+    t2i_mat_space2  = torch.stack(
+        (t2i_mat[:_bs, 2, :_bs, 2], t2i_mat[:_bs, 2, _bs:_bs*2, 2], t2i_mat[:_bs, 2, _bs*2:_bs*3, 2]), dim=2    
+    ).view(_bs, _bs*3)
+    t2i_space2 = ntxent_loss(text_ext[:_bs, 2, :], image_space2, mat=t2i_mat_space2, y_mask=image_space2_mask)
+
+    ret = {
+        "ms_loss": (i2t_space0 + i2t_space1 + i2t_space2 + t2i_space0 + t2i_space1 + t2i_space2).mean(),
+        "space0": (i2t_space0 + t2i_space0).mean().item(),
+        "space1": (i2t_space1 + t2i_space1).mean().item(),
+        "space2": (i2t_space2 + t2i_space2).mean().item(),
+    }
+    return ret
+
+def compute_ms_mod(model, out, batch):
+    n_space =  model._config['n_embed']
+    source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
+
+    image_emb, text_emb = out['image']['embedding'], out[target]['embedding']
+    image_ext_mask, text_ext_mask = batch['image_ext_mask'], batch[f'{target}_ext_mask']
+    _bs, d = len(image_ext_mask) // n_space, model._config['embed_dim']
+
+    image_emb = F.normalize(image_emb, p=2, dim=-1)  # (upto(n*b), n, d)
+    text_emb = F.normalize(text_emb, p=2, dim=-1)  # (upto(n*b), n, d)
+
+    image_ext = torch.zeros(_bs*n_space, n_space, d).to(image_emb.device)
+    text_ext = torch.zeros(_bs*n_space, n_space, d).to(text_emb.device)
+    image_ext[image_ext_mask] = image_emb  # (n*b, n, d)
+    text_ext[text_ext_mask] = text_emb  # (n*b, n, d)
+    image_ext_mask = image_ext_mask.reshape(n_space, _bs)
+    text_ext_mask = text_ext_mask.reshape(n_space, _bs)
+
+    mat = image_ext.reshape(-1, d) @ text_ext.reshape(-1, d).transpose(-2, -1)  # (b*n*n, b*n*n)
+    mat = mat.reshape(_bs*n_space, n_space, _bs*n_space, n_space)  # (b*n, n, b*n, n)
+    i2t_mat, t2i_mat = mat, mat.permute(2, 3, 0, 1)
+
+    ret = dict(); ms_loss = 0
+    for i in range(n_space):
+        ########## I2T: compare (in-batch)Images to (in-batch+...+extend_n)Text ##########
+        x = image_ext[:_bs, i, :]
+        y = torch.cat([text_ext[_bs*_j:_bs*(_j+1), i:i+1, :] for _j in range(i+1)], dim=1) if i > 0\
+            else text_ext[:_bs, i, :]
+        mat = torch.stack(
+            [i2t_mat[_bs*_j:_bs*(_j+1), i, _bs*_j:_bs*(_j+1), i] for _j in range(i+1)], dim=2
+        ).view(_bs, _bs*(i+1)) if i > 0 else i2t_mat[:_bs, i, :_bs, i]
+        y_mask = text_ext_mask[:i+1, :].transpose(0, 1) if i > 0 else None
+        loss1 = ntxent_loss(x, y, mat=mat, y_mask=y_mask)
+
+        ########## T2I: compare (in-batch)Text to (in-batch+...+extend_n)Images ##########
+        x = text_ext[:_bs, i, :]
+        y = torch.cat([image_ext[_bs*_j:_bs*(_j+1), i:i+1, :] for _j in range(i+1)], dim=1) if i > 0\
+            else image_ext[:_bs, i, :]
+        mat = torch.stack(
+            [t2i_mat[_bs*_j:_bs*(_j+1), i, _bs*_j:_bs*(_j+1), i] for _j in range(i+1)], dim=2
+        ).view(_bs, _bs*(i+1)) if i > 0 else t2i_mat[:_bs, i, :_bs, i]
+        y_mask = image_ext_mask[:i+1, :].transpose(0, 1) if i > 0 else None
+        loss2 = ntxent_loss(x, y, mat=mat, y_mask=y_mask)
+
+        ms_loss += (loss1 + loss2)
+        ret[f"space{i}"] = (loss1 + loss2).item()
+    ret["ms_loss"] = ms_loss
+    return ret
+

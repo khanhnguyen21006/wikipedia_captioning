@@ -119,7 +119,7 @@ def log_1d_mixture_gaussian(x, om, mu, logsig, log=True):
         logsig[:, :, :, None ,:]  # (b, h, n, 1, K)
     ) # (b, h, n, m, K)
    
-    log_p = (om.[:, :, :, None ,:] * log_p).sum(-1) # (b, h, n, m)
+    log_p = (om[:, :, :, None ,:] * log_p).sum(-1) # (b, h, n, m)
     assert ~any(log_p < 0)
     if not log:
         log_p = log_p.exp()

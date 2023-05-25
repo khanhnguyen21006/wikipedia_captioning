@@ -115,8 +115,12 @@ def get_dataset(name):
 		return WitDataset
 	elif name == 'coco':
 		return CocoDataset
-	elif name == 'wit_toy':
+	elif name == 'wittoy':
 		return WitToyDataset
+	elif name == 'witpage':
+		return WitPageDataset
+	elif name == 'wikiweb2m':
+		return WikiWebDataset
 	elif name == 'goodnews':
 		return GoodNewsDataset
 	# elif name == 'nytimes800k':
@@ -148,6 +152,8 @@ NUMERICS = ['image'] + TEXT_ENCODER_NUMERICS + TEXT_DECODER_NUMERICS
 def get_collate_hparams(_config):
 	name, text_ml, encoder, decoder = _config["dataset"], _config["text_max_len"],\
 									 _config["text_encoder"], _config["text_decoder"]
+	if name == 'witpage':
+		assert _config["n_embed"] > 1, "WitPage dataset requires setting no. space > 1"
 
 	has_encoder = encoder is not None
 	has_decoder = decoder is not None
@@ -166,7 +172,7 @@ def get_collate_hparams(_config):
 		elif image_size == 224:
 			text_ml = text_ml - 49
 
-	if name == "wit":
+	if name in ["wit", "witpage", "wikiweb2m"]:
 		context_keys = ['description', 'section'] \
 						+ (WIT_COMPOSITION if use_gpt2pp_decoder else [])
 	else:
@@ -179,7 +185,8 @@ def get_collate_hparams(_config):
 		'dec_tokenizer': dec_tokenizer,
 		'context_keys': context_keys,
 		'target_keys': target_keys,
-		'text_max_len': text_ml
+		'text_max_len': text_ml,
+		'num_space': _config["n_embed"]
 	}
 
 class RoBERTaTokenizer():

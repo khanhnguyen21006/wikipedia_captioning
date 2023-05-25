@@ -27,30 +27,6 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_i2t_neg", Scalar())
 				setattr(pl_module, f"{split}_t2i_pos", Scalar())
 				setattr(pl_module, f"{split}_t2i_neg", Scalar())
-			elif k == "tripe":
-				setattr(pl_module, f"{split}_tripe_loss", Scalar())
-				setattr(pl_module, f"{split}_i2s", Scalar())
-				setattr(pl_module, f"{split}_s2i", Scalar())
-				setattr(pl_module, f"{split}_i2d", Scalar())
-				setattr(pl_module, f"{split}_d2i", Scalar())
-				setattr(pl_module, f"{split}_d2s", Scalar())
-				setattr(pl_module, f"{split}_s2d", Scalar())
-				setattr(pl_module, f"{split}_i2s_pos", Scalar())
-				setattr(pl_module, f"{split}_i2s_neg", Scalar())
-				setattr(pl_module, f"{split}_s2i_pos", Scalar())
-				setattr(pl_module, f"{split}_s2i_neg", Scalar())
-				setattr(pl_module, f"{split}_i2d_pos", Scalar())
-				setattr(pl_module, f"{split}_i2d_neg", Scalar())
-				setattr(pl_module, f"{split}_d2i_pos", Scalar())
-				setattr(pl_module, f"{split}_d2i_neg", Scalar())
-				setattr(pl_module, f"{split}_s2d_pos", Scalar())
-				setattr(pl_module, f"{split}_s2d_neg", Scalar())
-				setattr(pl_module, f"{split}_d2s_pos", Scalar())
-				setattr(pl_module, f"{split}_d2s_neg", Scalar())
-				setattr(pl_module, f"{split}_vib_loss", Scalar())
-				setattr(pl_module, f"{split}_image_volume", Scalar())
-				setattr(pl_module, f"{split}_description_volume", Scalar())
-				setattr(pl_module, f"{split}_section_volume", Scalar())
 			elif k == "mmpe":
 				setattr(pl_module, f"{split}_mmpe_loss", Scalar())
 				setattr(pl_module, f"{split}_i2t", Scalar())
@@ -66,6 +42,10 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_vib_loss", Scalar())
 				setattr(pl_module, f"{split}_image_volume", Scalar())
 				setattr(pl_module, f"{split}_text_volume", Scalar())
+			elif k == "ms":
+				setattr(pl_module, f"{split}_ms_loss", Scalar())
+				for _i in range(pl_module.hparams._config["n_embed"]):
+					setattr(pl_module, f"{split}_space{_i}", Scalar())
 			else:
 				setattr(pl_module, f"{split}_{k}_loss", Scalar())
 
@@ -79,21 +59,7 @@ def epoch_wrapup(pl_module):
 			continue
 
 		value = 0
-		if loss == "tripe":
-			tripe_loss = getattr(pl_module, f"{phase}_tripe_loss").compute()
-			pl_module.log(
-				f"tripe/{phase}/loss_epoch",
-				tripe_loss,
-			)
-			getattr(pl_module, f"{phase}_tripe_loss").reset()
-			vib_loss = getattr(pl_module, f"{phase}_vib_loss").compute()
-			pl_module.log(
-				f"tripe/{phase}/vib_loss_epoch",
-				vib_loss,
-			)
-			getattr(pl_module, f"{phase}_vib_loss").reset()
-			value = tripe_loss + vib_loss
-		elif loss == "mmpe":
+		if loss == "mmpe":
 			mmpe_loss = getattr(pl_module, f"{phase}_mmpe_loss").compute()
 			pl_module.log(
 				f"mmpe/{phase}/mmpe_loss_epoch",
@@ -119,6 +85,14 @@ def epoch_wrapup(pl_module):
 		the_metric += value
 
 	pl_module.log(f"{phase}/the_metric", the_metric)
+
+	if pl_module.trainer.global_rank == 0:
+		import os, json
+		log_dir = pl_module.trainer.logger.log_dir
+		if not os.path.exists(os.path.join(log_dir, 'config.json')):
+			print(f"Saving config file to {log_dir}/config.json")
+			with open(os.path.join(log_dir, 'config.json'), 'w') as f:
+				json.dump(pl_module.hparams._config, f, indent=4)
 
 
 def set_loss(pl_module):

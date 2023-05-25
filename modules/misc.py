@@ -6,7 +6,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import copy
 from functools import reduce
 import numpy as np
-from utils import sample_gaussian_tensors, log_mixture_gaussian, gelu
+from utils import sample_gaussian_tensors, log_1d_mixture_gaussian, gelu
 
 def get_image_pooler(dim, _config):
     """
@@ -19,6 +19,8 @@ def get_image_pooler(dim, _config):
         model = PCMENet(dim, **_config)
     elif _name == 'slot':
         model = SlotAttentionNet(dim, **_config)
+    elif _name == 'linear':
+        model = LinearPooler(**_config)
     else:
         raise ValueError(f"{_name} Image Pooling is not supported.")
     return model
@@ -34,6 +36,8 @@ def get_text_pooler(dim, _config):
         model = PCMENet(dim, **_config)
     elif _name == 'slot':
         model = SlotAttentionNet(dim, **_config)
+    elif _name == 'linear':
+        model = LinearPooler(**_config)
     else:
         raise ValueError(f"{_name} Text Pooling is not supported.")
     return model
@@ -56,6 +60,8 @@ def get_fuser(_config):
 
 def _get_clones(module, n):
     return nn.ModuleList([copy.deepcopy(module) for i in range(n)])
+
+###################### POOLER ######################
 
 class MultiHeadSelfAttention(nn.Module):
     """Self-Attention layer introduced in https://arxiv.org/abs/1703.03130"""
@@ -176,7 +182,7 @@ class PCMENet(nn.Module):
                 x = x_attn
         else:
             x = x_attn
-        return x, x_mask, out
+        return x, out
 
 class ModifiedSlotAttention(nn.Module):
     """Modified Slot Attention from https://arxiv.org/abs/2006.15055"""
@@ -289,6 +295,30 @@ class PositionEmbedding(nn.Module):
         pos_embed[:, :, 0::2] = pos_embed[:, :, 0::2].sin()
         pos_embed[:, :, 1::2] = pos_embed[:, :, 1::2].cos()
         return pos_embed
+
+class LinearPooler(nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.d_emb = kwargs['embed_dim']
+        self.n_emb = kwargs['n_embed']
+        self.fc = nn.Linear(self.d_emb, self.d_emb * self.n_emb)
+        self.ln = nn.Sequential(
+            nn.LayerNorm(self.d_emb),
+            # nn.Dropout(),
+            nn.GELU(),
+        )
+
+    def _init_weights(self):
+        nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.constant_(self.fc.bias, 0.0)
+
+    def forward(self, x_cls, *args, **kwargs):
+        out = dict()
+        x = self.ln(self.fc(x_cls).view(-1, self.n_emb, self.d_emb))
+        out['residual'] = x
+        return x, out
+
+###################### FUSER ######################
 
 def dot_product_attention(q, k, v, kv_mask=None, drop=None, attn_only=False):
     attn = torch.matmul(q, k.transpose(-2, -1)) * (d ** -0.5)  # (b, h, n, d_h) x (b, h, d_h, m) => (b, h, n, m)
@@ -556,7 +586,7 @@ class MMBert(SimplifiedBert):
     def prepare_output(self, x, out):
         iml = out['image']['embedding'].size(1)
         out['image']['embedding'] = x[:, 0, :]
-        out['image']['cls_embedding'] = [:, 1:iml, :]
+        out['image']['cls_embedding'] = x[:, 1:iml, :]
         out['section']['embedding'] = x[:, iml, :]
         out['section']['cls_embedding'] = x[:, iml+1:, :]
 

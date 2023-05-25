@@ -13,8 +13,8 @@ def _loss_names(d):
 		"de": 0,
 		"mmpe": 0,
 		"vib": 0,
-		"tripe": 0,
 		"se": 0,
+		"ms": 0,
 	}
 	ret.update(d)
 	return ret
@@ -121,6 +121,12 @@ def wit():
 
 
 @ex.named_config
+def witpage():
+	dataset = 'witpage'
+	data_folder = '/data/users/vkhanh/refined'
+
+
+@ex.named_config
 def goodnews():
 	dataset = 'goodnews'
 	data_folder = '/data/users/vkhanh/goodnews/data/goodnews_jaccard/all'
@@ -211,8 +217,8 @@ def t5_adapter():
 	lr_multiplier = 1.
 
 @ex.named_config
-def pcme():
-	expt_name = "pcme"
+def prob_embed():
+	expt_name = "prob_embed"
 	losses = _loss_names({"pe": 1, "vib": 1})
 	image_encoder = 'openai/clip-vit-base-patch32'
 	text_encoder = 'sentence-transformers/all-distilroberta-v1'
@@ -245,8 +251,8 @@ def pcme():
 
 
 @ex.named_config
-def se_slot_chamfer():
-	expt_name = "se_slot_chamfer"
+def set_embed_slot_chamfer():
+	expt_name = "set_embed_slot_chamfer"
 	losses = _loss_names({"se": 1, "div": 1, "mmd": 1,})
 	image_encoder = 'openai/clip-vit-base-patch32'
 	text_encoder = 'sentence-transformers/all-distilroberta-v1'
@@ -279,3 +285,32 @@ def se_slot_chamfer():
 	text_max_len = 512
 	max_epoch = 30
 	per_gpu_batchsize = 128
+
+@ex.named_config
+def multi_space_embed():
+	expt_name = "multi_space_embed"
+	losses = _loss_names({"ms": 1, "div": 1})
+	image_encoder = 'openai/clip-vit-base-patch32'
+	text_encoder = 'sentence-transformers/all-distilroberta-v1'
+	text_decoder = None
+	image_encoder_finetune = False
+	text_encoder_finetune = False
+	text_decoder_finetune = False
+	embed_dim = 1024
+	image_pooling = 'linear'
+	text_pooling = 'linear'
+
+	n_embed = 3
+	div_lambda = 0.1
+	# source_to_target = {'source': ['image', 'description'], 'target': 'section'}
+	source_to_target = {'source': ['image'], 'target': 'section'}
+
+	optimizer = "adamp"
+	learning_rate = 2e-4
+	weight_decay = 0.0001
+	lr_scheduler = 'cosine_annealing'
+
+	transform = 'clip_vit_h5py'
+	text_max_len = 512
+	max_epoch = 30
+	per_gpu_batchsize = 64
