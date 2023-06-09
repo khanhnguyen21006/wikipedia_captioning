@@ -1,4 +1,4 @@
-import os
+import os, re
 import tqdm
 from functools import partial
 import numpy as np
@@ -198,9 +198,14 @@ def retrieve_wrapup(pl_module):
 	3. gather distributedly-computed features
 	4. compute score
     """
-    ws = torch.distributed.get_world_size()
     _config = pl_module.hparams._config
     test_split = _config['retrieval_testset']
+    if 'multi' in test_split:
+        retrieve_multi(pl_module)
+        return
+
+    ws = torch.distributed.get_world_size()
+
     ret_dset= pl_module.trainer.datamodule.get_ret_dset(test_split)
     ret_dset.hparams = pl_module.trainer.datamodule.collate_hparams
     dist_sampler = DistributedSampler(ret_dset, shuffle=False)
@@ -277,7 +282,7 @@ def retrieve_wrapup(pl_module):
         ret_matrix, _ = cosine_kk.max(dim=1)
     elif _config['eval_method'] == 'smooth_chamfer':
         assert n_emb > 1
-        alpha = pl_module.model._config['chamfer_alpha']
+        alpha = _config['chamfer_alpha']
         image_emb = F.normalize(buffer['image_emb'], dim=-1)
         text_emb = F.normalize(buffer['text_emb'], dim=-1)
         ret_matrix = smooth_chamfer_loss(image_emb, text_emb, alpha, return_score=True)
@@ -295,13 +300,19 @@ def retrieve_wrapup(pl_module):
     print("t2i retrieval: ", t2i)
 
     if torch.distributed.get_rank() == 0:
-        if not n_emb > 1 or not prob_emb:
-            return
         expt_path = os.path.join(
             _config['result_dir'], 'inference', _config['expt_name'], 'retrieve'
         )
         os.makedirs(expt_path, exist_ok=True)
         print(f"Saving retrieval output to: {expt_path}")
+
+        if not n_emb > 1 or not prob_emb:
+            if mm_query is None:
+                np.save(os.path.join(expt_path, f"image_to_{target}_score_{test_split}"), ret_matrix)
+            else:
+                np.save(os.path.join(expt_path, f"image_{source[1]}_to_{target}_score_{test_split}"), ret_matrix)
+            return
+
         if mm_query is None:
             np.save(os.path.join(expt_path, f"image_to_{target}_score_{test_split}"), ret_matrix)
             np.save(os.path.join(expt_path, f"image_embedding_{test_split}"), buffer['image_emb'].detach().cpu().numpy())
@@ -368,3 +379,170 @@ def update_det_embed(emb_out, model_out, mm_query, source, target):
         emb_out['txt_emb'].append(_txt_emb)
     emb_out['image_emb'].append(_image_emb)
     emb_out['text_emb'].append(_text_emb)
+
+@torch.no_grad()
+def retrieve_multi(pl_module):
+    """
+    This function only supports retrieval usecases:
+        image-to-section, image-to-caption
+        image-description-to-section, image-description-to-caption, image-section-to-caption 
+        output: image-to-text 2-way recall, R-Precision, the other way if possible
+    """
+    _config = pl_module.hparams._config
+    dm = pl_module.trainer.datamodule
+    dm.dataset = 'witretmulti'
+    n_emb, prob_emb, mm_query, em = _config["n_embed"], _config['prob_embed'], _config['multi_query'], _config['eval_method']
+    if 'test_1k' in _config['retrieval_testset']:
+        wd = em.split('_')[-1] if 'random' in em else ''
+        txt_split = 'test_1k_RET_Sec' + f'_{wd}'
+        im_split = 'test_1k_RET_Im' + f'_{wd}'
+    elif'test_5k' in _config['retrieval_testset']:
+        wd = em.split('_')[-1] if 'random' in em else ''
+        txt_split = 'test_5k_RET_Sec' + f'_{wd}'
+        im_split = 'test_5k_RET_Im' + f'_{wd}'
+    else:
+        txt_split = 'test_SecDeDup_RET' if _config['source_to_target']['target'] == 'section' else 'test_CapDeDup_RET'
+        im_split = 'test_ImDeDup_RET'
+
+    txt_dset = dm.get_ret_dset(txt_split)
+    txt_dset.hparams = dm.collate_hparams
+    n_txt = len(txt_dset)
+    txt_loader = torch.utils.data.DataLoader(
+        txt_dset,
+        batch_size=64,
+        num_workers=_config["num_workers"],
+        pin_memory=True,
+        collate_fn=partial(txt_dset.collate),
+    )
+
+    im_dset = dm.get_ret_dset(im_split)
+    im_dset.hparams = dm.collate_hparams
+    n_im = len(im_dset)
+    im_loader = torch.utils.data.DataLoader(
+        im_dset,
+        batch_size=_config["per_gpu_batchsize"],
+        num_workers=_config["num_workers"],
+        pin_memory=True,
+        collate_fn=partial(im_dset.collate),
+    )
+    # import pudb; pu.db
+    txt_embed, txt_logsig, txt_gt = list(), list(), list()
+    for _b in tqdm.tqdm(txt_loader, desc='embedding text loop'):
+        _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
+        txt_out = pl_module.model.encode_text(_b, 'section')
+        
+        if n_emb > 1 and prob_emb:
+            txt_embed.append(txt_out['embedding'])
+            txt_logsig.append(txt_out['logsigma'])
+        else:
+            txt_embed.append(txt_out['embedding'])
+        txt_gt += _b['retrieve_gt']
+
+    txt_embed = torch.cat(txt_embed, dim=0)
+    if n_emb > 1 and prob_emb:
+        txt_logsig = torch.cat(txt_logsig, dim=0)
+
+    im_embed, im_logsig, im_gt = list(), list(), list()
+    for _b in tqdm.tqdm(im_loader, desc='embedding image loop'):
+        _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
+        img_out = pl_module.model.encode_image(_b)
+
+        if n_emb > 1:
+            if prob_emb: # PE
+                if mm_query is not None:
+                    txt_out = pl_module.model.encode_text(_b, 'description')
+                    _im_emb, _im_logsig = img_out['embedding'], img_out['logsigma']
+                    _txt_emb, _txt_logsig = txt_out['embedding'], txt_out['logsigma']
+                    if mm_query == 'addition':
+                        _im_mu, _txt_mu = _im_emb.mean(dim=1), _txt_emb.mean(dim=1)
+                        _image_mu, _image_logsig, _ = addition_2_gaussians(_im_mu, _im_logsig, _txt_mu, _txt_logsig)
+                        _image_emb = sample_gaussian_tensors(_image_mu, _image_logsig, n_emb)
+                    if mm_query == 'mixture':
+                        _im_mu, _txt_mu = _im_emb.mean(dim=1), _txt_emb.mean(dim=1)
+                        _image_mu, _image_logsig, _ = mixture_2_gaussians(_im_mu, _im_logsig, _txt_mu, _txt_logsig)
+                        _image_emb = sample_gaussian_tensors(_image_mu, _image_logsig, n_emb)
+                    if mm_query == 'multiplication':
+                        _image_mu, _image_logsig, log_z = product_2_gaussians(_im_emb, _im_logsig, _txt_emb, _txt_logsig)
+                        _image_emb = _image_mu
+                    im_embed.append(_image_emb)
+                    im_logsig.append(_image_logsig)
+                else:
+                    im_embed.append(img_out['embedding'])
+                    im_logsig.append(img_out['logsigma'])
+            else: # SE
+                im_embed.append(img_out['embedding'])
+        else: # DE
+            if mm_query is not None:
+                txt_out = pl_module.model.encode_text(_b, 'description')
+                _im_emb, _txt_emb = img_out['embedding'].unsqueeze(1), txt_out['embedding'].unsqueeze(1)
+                if mm_query == 'addition':
+                    _image_emb = _im_emb + _txt_emb
+                if mm_query == 'average':
+                    _image_emb = (_im_emb + _txt_emb)/2
+                im_embed.append(_image_emb)
+            else:
+                im_embed.append(img_out['embedding'])
+        im_gt += _b['retrieve_gt']
+
+    im_embed = torch.cat(im_embed, dim=0)
+    if n_emb > 1 and prob_emb:
+        im_logsig = torch.cat(im_logsig, dim=0)
+
+    ret_matrix = torch.zeros(n_im, n_txt)
+    if _config['eval_method'] == 'matmul':
+        for idx, query in enumerate(im_embed):
+            query = query.unsqueeze(0)
+            query = query.view(len(query) * n_emb, -1)
+            gallery = txt_embed.view(n_im * n_emb, -1).t()
+            _score = query.mm(gallery)
+            if n_emb > 1:
+                _score = _score.view(
+                    len(query)//n_emb, n_emb, gallery.size()[-1]//n_emb, n_emb
+                )
+                _score = _score.permute(0, 1, 3, 2)
+                _score = torch.sum(torch.sum(_score, axis=1), axis=1)
+            ret_matrix[idx] = _score
+    elif _config['eval_method'] == 'matching_prob':
+        scale, shift = pl_module.model.scale, pl_module.model.shift
+        for idx, query in enumerate(im_embed):
+            _score = match_prob(query.unsqueeze(0), txt_embed, scale, shift)
+            ret_matrix[idx] = _score
+    elif 'mse_space' in _config['eval_method']:
+        s = int(_config['eval_method'].split('_')[-1])
+        assert s < n_emb, f"Invalid evaluation method: {_config['eval_method']}."
+        ret_matrix = im_embed[:, s, :] @ txt_embed[:, s, :].t()
+    elif 'match_sentence' in _config['eval_method']:
+        em = _config['eval_method']
+        assert em in ['match_sentence_max'] or re.match(r"match_sentence_max_random_\d", em)
+        agg = em.split('_')[2]
+        if agg  == 'max':
+            other = torch.tensor(-1e9).cuda()
+            ret_matrix = torch.zeros(n_im, n_im)
+            mask_matrix = torch.zeros(n_im, n_txt).bool().cuda()
+            for _i in range(n_im):
+                mask_matrix[_i] = torch.tensor(np.array(txt_gt) == _i) 
+            for idx, query in tqdm.tqdm(enumerate(im_embed), desc="compute score"):
+                query = query.unsqueeze(0)
+                query = query.view(len(query) * n_emb, -1)
+                gallery = txt_embed.view(n_txt * n_emb, -1).t()
+                _score = query.mm(gallery)
+                if n_emb > 1:
+                    _score = _score.view(
+                        len(query)//n_emb, n_emb, gallery.size()[-1]//n_emb, n_emb
+                    )
+                    _score = _score.permute(0, 1, 3, 2)
+                    _score = torch.sum(torch.sum(_score, axis=1), axis=1) # (n_txt)
+
+                _score = _score.expand(n_im, -1)  # (n_im, n_txt)
+                ret_matrix[idx] = torch.max(torch.where(mask_matrix, _score, other), dim=-1).values
+        else:
+            raise ValueError("Unsupported aggregator.")
+        im_gt, txt_gt, n_txt = None, None, n_im
+    else:
+        raise f"Method {_config['eval_method']} is not supported for evaluation."
+
+    ret_matrix = ret_matrix.detach().cpu().numpy()
+    i2t = rank(ret_matrix, n_im, refs=im_gt)
+    t2i = rank(np.transpose(ret_matrix), n_txt, refs=txt_gt)
+    print("i2t retrieval: ", i2t)
+    print("t2i retrieval: ", t2i)

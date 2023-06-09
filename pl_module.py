@@ -87,11 +87,12 @@ class PlayGround(pl.LightningModule):
 		utils.epoch_wrapup(self)
 
 	def test_step(self, batch, batch_idx):
-		ret, out = self(batch)
-		self.log_metrics(ret)
-		if self.hparams._config['run_caption']:
-			return self.model.generate(batch, out, **self.trainer.datamodule.collate_hparams)
-		return
+		# ret, out = self(batch)
+		# self.log_metrics(ret)
+		# if self.hparams._config['run_caption']:
+		# 	return self.model.generate(batch, out, **self.trainer.datamodule.collate_hparams)
+		# return
+		pass
 
 	def test_epoch_end(self, outs):
 		if self.hparams._config['run_caption']:

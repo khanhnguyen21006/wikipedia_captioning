@@ -19,7 +19,7 @@ class DataModule(LightningDataModule):
         self.batch_size = _config["per_gpu_batchsize"]
 
         self.transforms = get_transform(_config["transform"])
-        self.collate_hparams = get_collate_hparams(_config)
+        self.collate_hparams = get_dataset_hparams(_config)
 
         self.collate_fn = None
         
@@ -96,7 +96,7 @@ class DataModule(LightningDataModule):
             split=split,
             d_folder=os.path.join(self.data_folder, 'wiki_retrieval'),
             d_name=self.dataset,
-            transform=self.transforms['train']
+            transform=self.transforms['val']
         )
 
     def set_train_dataset(self):

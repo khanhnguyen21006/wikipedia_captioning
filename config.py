@@ -28,6 +28,7 @@ def config():
 	dataset = 'wit'
 	data_folder = '/data/users/vkhanh/all'
 	transform = 'resnet_h5py'
+	extract_context = ''
 
 	losses = _loss_names({"lm": 1})
 	batch_size = 256  # accumulated batch size.
@@ -167,8 +168,8 @@ def eval():
 	# run_caption = True
 
 	run_retrieve = True
-	retrieval_testset = 'test_5k_RET'
-	eval_method = 'matching_prob'
+	retrieval_testset = 'test_5k_multi_RET'
+	eval_method = 'match_sentence'
 	num_gpus = 1
 
 
@@ -219,7 +220,8 @@ def t5_adapter():
 @ex.named_config
 def prob_embed():
 	expt_name = "prob_embed"
-	losses = _loss_names({"pe": 1, "vib": 1})
+	# losses = _loss_names({"pe": 1, "vib": 1})
+	losses = _loss_names({"de": 1})
 	image_encoder = 'openai/clip-vit-base-patch32'
 	text_encoder = 'sentence-transformers/all-distilroberta-v1'
 	text_decoder = None
@@ -228,16 +230,17 @@ def prob_embed():
 	text_decoder_finetune = False
 	embed_dim = 1024
 
-	n_embed = 8
-	prob_embed = True
-	# n_embed = 1
-	# prob_embed = False
-	pe_scale = 1.5
-	pe_shift = 1.
-	vib_lambda = 0.00001
+	# n_embed = 8
+	# prob_embed = True
+	n_embed = 1
+	prob_embed = False
+	# pe_scale = 1.5
+	# pe_shift = 1.
+	# vib_lambda = 0.00001
 	multi_query = None
 	# source_to_target = {'source': ['image', 'description'], 'target': 'section'}
 	source_to_target = {'source': ['image'], 'target': 'section'}
+	extract_context = 'random_2'
 
 	optimizer = "adamp"
 	learning_rate = 2e-4
@@ -286,10 +289,12 @@ def set_embed_slot_chamfer():
 	max_epoch = 30
 	per_gpu_batchsize = 128
 
+
 @ex.named_config
 def multi_space_embed():
 	expt_name = "multi_space_embed"
 	losses = _loss_names({"ms": 1, "div": 1})
+	# losses = _loss_names({"ms": 1})
 	image_encoder = 'openai/clip-vit-base-patch32'
 	text_encoder = 'sentence-transformers/all-distilroberta-v1'
 	text_decoder = None
@@ -297,11 +302,15 @@ def multi_space_embed():
 	text_encoder_finetune = False
 	text_decoder_finetune = False
 	embed_dim = 1024
-	image_pooling = 'linear'
-	text_pooling = 'linear'
+	# image_pooling = 'pcme'
+	# text_pooling = 'pcme'
+	image_pooling = 'slot'
+	text_pooling = 'slot'
 
+	# n_embed = 1
 	n_embed = 3
-	div_lambda = 0.1
+	prob_embed = False
+	div_lambda = 1
 	# source_to_target = {'source': ['image', 'description'], 'target': 'section'}
 	source_to_target = {'source': ['image'], 'target': 'section'}
 
@@ -313,4 +322,5 @@ def multi_space_embed():
 	transform = 'clip_vit_h5py'
 	text_max_len = 512
 	max_epoch = 30
+	# per_gpu_batchsize = 128
 	per_gpu_batchsize = 64

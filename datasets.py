@@ -1,11 +1,9 @@
 import torch
 
 import abc
-import h5py
-import json
-import os
-import re
+import os, json, h5py, re
 import numpy as np
+from nltk.tokenize import sent_tokenize
 
 from pycocotools.coco import COCO
 from PIL import Image
@@ -18,6 +16,23 @@ def build_context(_batch, k):
         return [_batch[_l] if _l in _batch else [None]*_bs for _l in l]
     else:
         return _batch[k] if k in _batch else [None]*_bs
+
+
+def merge(sents, n, do_sample=True):
+    assert isinstance(sents, list)
+    sampled = sents
+    if do_sample:
+        assert n > 0
+        if len(sents) > n:
+            idx = np.random.randint(len(sents) - n)
+            sampled = sents[idx:(idx+n)]
+    else:
+        sampled = sents[:n]
+    sent = ""
+    for s in sampled:
+        sent += ' ' + s
+    sent = sent.strip()
+    return sent
 
 class BaseDataset(abc.ABC, torch.utils.data.Dataset):
     def __init__(self, d_folder, d_name, transform=None):
@@ -67,6 +82,10 @@ class WitDataset(BaseDataset):
             self.descriptions = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_' + self.d_name + '.json'), 'r') as f:
             self.contexts = json.load(f)
+        with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
+            self.extbydesc_contexts = json.load(f)
+        with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
+            self.extbycap_contexts = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_STRCAPS_' + self.d_name + '.json'), 'r') as f:
             self.captions = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_' + self.d_name + '.json'), 'r') as f:
@@ -82,7 +101,18 @@ class WitDataset(BaseDataset):
 
         image = self.images[i]
         description = self.descriptions[i]
-        context = self.contexts[i]
+        if self.hparams['extract_context'] == 'by_desc':
+            context = self.extbydesc_contexts[i]
+        elif self.hparams['extract_context'] == 'by_cap':
+            context = self.extbycap_contexts[i]
+        elif re.compile(r"first_\d+").match(self.hparams['extract_context']):
+            n = int(self.hparams['extract_context'].split('_')[-1])
+            context = merge(sent_tokenize(self.contexts[i]), n, do_sample=False)
+        elif re.compile(r"random_\d+").match(self.hparams['extract_context']):
+            n = int(self.hparams['extract_context'].split('_')[-1])
+            context = merge(sent_tokenize(self.contexts[i]), n)
+        else:
+            context = self.contexts[i]
         caption = self.captions[i]
         image_id = self.ids[i]
 
@@ -219,9 +249,9 @@ class WitToyDataset(BaseDataset):
         if self.transform is not None:
             image = self.transform(image)
 
-        description = merge(d_sents)
-        context = merge(s_sents)
-        caption = merge(c_sents)
+        description = merge(d_sents, self.n_sample)
+        context = merge(s_sents, self.n_sample)
+        caption = merge(c_sents, self.n_sample)
 
         ret = {
             'image': image,
@@ -232,17 +262,6 @@ class WitToyDataset(BaseDataset):
             'caption': caption
         }
         return ret
-
-    def merge(sents):
-        sampled = sents
-        if self.n_sample > 0 and len(sents) > self.n_sample:
-            idx = np.random.randint(len(sents) - self.n_sample)
-            sampled = sents[idx:(idx+self.n_sample)]
-        sent = ""
-        for s in sampled:
-            sent += ' ' + s
-        sent = sent.strip()
-        return sent
 
 @BaseDataset.register
 class WitPageDataset(BaseDataset):
@@ -266,9 +285,9 @@ class WitPageDataset(BaseDataset):
             self.ids = json.load(f)
         self.ret_mode = '_RET' in self.split
         if not self.ret_mode:
-            with open(os.path.join(self.d_folder, self.split + '_IMAGEINPAGEIDS_wit.json'), 'r') as f:
+            with open(os.path.join(self.d_folder, 'page', self.split + '_IMAGEINPAGEIDS_wit.json'), 'r') as f:
                 self.image_in_page = json.load(f)
-            with open(os.path.join(self.d_folder, self.split + '_CONTEXTINPAGEIDS_wit.json'), 'r') as f:
+            with open(os.path.join(self.d_folder, 'page', self.split + '_CONTEXTINPAGEIDS_wit.json'), 'r') as f:
                 self.context_in_page = json.load(f)
 
     def open_h5py(self):
@@ -387,3 +406,109 @@ class GoodNewsDataset(BaseDataset):
             'caption': caption
         }
         return ret
+
+class WitRetMultiDataset(BaseDataset):
+    def __init__(self, split, *args, **kwargs):
+        self.split = split
+        assert split in {'test_1k_RET', 'test_5k_RET', 'test_ImDeDup_RET', 
+                            'test_ImSecDeDup_RET', 'test_CapDeDup_RET', 'test_SecDeDup_RET'} \
+                            or re.match(r"test_(1k|5k)_RET_(Im|Sec)(_\d+)*", split)
+
+        super().__init__(*args, **kwargs)
+
+    def load_data(self):
+        if 'ImDeDup' in self.split:
+            self.images = None
+            with h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_wit.hdf5'), 'r') as h:
+                self.d_size = len(h['images'])
+            with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_wit.json'), 'r') as f:
+                self.ids = json.load(f)
+            with open(os.path.join(self.d_folder, self.split + '_SecGTS_wit.json'), 'r') as f:
+                self.gts = json.load(f)
+        elif 'CapDeDup' in self.split:
+            with open(os.path.join(self.d_folder, self.split + '_STRCAPS_wit.json'), 'r') as f:
+                self.captions = json.load(f)
+            with open(os.path.join(self.d_folder, self.split + '_ImGTS_wit.json'), 'r') as f:
+                self.gts = json.load(f)
+            self.d_size = len(self.captions)
+        elif 'SecDeDup' in self.split:
+            with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_wit.json'), 'r') as f:
+                self.contexts = json.load(f)
+            with open(os.path.join(self.d_folder, self.split + '_ImGTS_wit.json'), 'r') as f:
+                self.gts = json.load(f)
+            self.d_size = len(self.contexts)
+        elif '_RET' in self.split:  # get sentence tokenized data
+            t = self.split.split('_')
+            self.split, self.mod, self.wd = '_'.join(t[:-2]), t[-2], int(t[-1])
+            if self.mod == 'Im':
+                self.images = None
+                with h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_wit.hdf5'), 'r') as h:
+                    self.d_size = len(h['images'])
+                with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_wit.json'), 'r') as f:
+                    self.ids = json.load(f)
+                self.gts = np.arange(self.d_size)[None, :].transpose(1, 0)
+            elif self.mod == 'Sec':
+                with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_SENTS_wit.json'), 'r') as f:
+                    self.contexts = json.load(f)
+                self.gts = [ind for ind, c in enumerate(self.contexts) for _ in range(len(c) - self.wd + 1)]
+                self.contexts = [' '.join(c[_i:_i + self.wd]).strip() for c in self.contexts for _i in range(len(c) - self.wd + 1)]
+                self.d_size = len(self.contexts)
+                assert len(self.contexts) == len(self.gts)
+            else:
+                raise ValueError("Wrong Mod")
+        else:
+            raise ValueError("Invalid split.")
+
+    def open_h5py(self):
+        h = h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_wit.hdf5'), 'r')
+        self.images = h['images']
+
+    def __getitem__(self, i):
+        if 'ImDeDup' in self.split:
+            if self.images is None:
+                self.open_h5py()
+            image = self.images[i]
+            image_id = self.ids[i]
+            if self.transform is not None:
+                image = self.transform(image.transpose(1, 2, 0))
+            ret = {'image': image, 'image_id': image_id,}
+        elif 'CapDeDup' in self.split:
+            caption = self.captions[i]
+            ret = {'caption': caption}
+        elif 'SecDeDup' in self.split:
+            context = self.contexts[i]
+            ret = {'section': context}
+        elif '_RET' in self.split:  # get sentence tokenized data
+            if self.mod == 'Im':
+                if self.images is None:
+                    self.open_h5py()
+                image = self.images[i]
+                image_id = self.ids[i]
+                if self.transform is not None:
+                    image = self.transform(image.transpose(1, 2, 0))
+                ret = {'image': image, 'image_id': image_id,}
+            elif self.mod == 'Sec':
+                context = self.contexts[i]
+                ret = {'section': context}
+            else:
+                raise ValueError("Wrong modality")
+        else:
+            raise ValueError("Invalid split")
+        ret.update({'retrieve_gt': self.gts[i]})
+        return ret
+
+    def collate(self, batch):
+        keys = set([key for b in batch for key in b.keys()])
+        dict_batch = {k: [b[k] if k in b else None for b in batch] for k in keys}
+
+        if 'ImDeDup' in self.split or 'ImSecDeDup' in self.split or ('_RET' in self.split and self.mod == 'Im'):
+            dict_batch['image'] = torch.stack(dict_batch['image'])
+        if 'CapDeDup' in self.split:
+            dict_batch['caption_id'], dict_batch['caption_id'] = self.hparams['enc_tokenizer'].tokenize(
+                    dict_batch['caption'], self.hparams['text_max_len']
+                )
+        if 'SecDeDup' in self.split or ('_RET' in self.split and self.mod == 'Sec'):
+            dict_batch['section_id'], dict_batch['section_mask'] = self.hparams['enc_tokenizer'].tokenize(
+                    dict_batch['section'], self.hparams['text_max_len']
+                )
+        return dict_batch

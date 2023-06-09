@@ -119,6 +119,8 @@ def get_dataset(name):
 		return WitToyDataset
 	elif name == 'witpage':
 		return WitPageDataset
+	elif name == 'witretmulti':
+		return WitRetMultiDataset
 	elif name == 'wikiweb2m':
 		return WikiWebDataset
 	elif name == 'goodnews':
@@ -149,11 +151,12 @@ TEXT_DECODER_NUMERICS = [
 	]
 NUMERICS = ['image'] + TEXT_ENCODER_NUMERICS + TEXT_DECODER_NUMERICS
 
-def get_collate_hparams(_config):
+def get_dataset_hparams(_config):
 	name, text_ml, encoder, decoder = _config["dataset"], _config["text_max_len"],\
 									 _config["text_encoder"], _config["text_decoder"]
 	if name == 'witpage':
-		assert _config["n_embed"] > 1, "WitPage dataset requires setting no. space > 1"
+		# assert _config["n_embed"] > 1, "WitPage dataset requires setting no. space > 1"
+		pass
 
 	has_encoder = encoder is not None
 	has_decoder = decoder is not None
@@ -186,7 +189,8 @@ def get_collate_hparams(_config):
 		'context_keys': context_keys,
 		'target_keys': target_keys,
 		'text_max_len': text_ml,
-		'num_space': _config["n_embed"]
+		'num_space': _config["n_embed"],
+		'extract_context': _config["extract_context"]
 	}
 
 class RoBERTaTokenizer():

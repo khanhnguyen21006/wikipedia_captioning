@@ -109,7 +109,7 @@ class UncertaintyModule(nn.Module):
         nn.init.constant_(self.fc.bias, 0)
 
     def forward(self, x_cls, x, pad_mask=None):
-        x_attn, attn = self.attention(x, mask)
+        x_attn, attn = self.attention(x, pad_mask)
         if self.agg == 'gru':
             lens = torch.sum(~pad_mask, dim=-1)
             packed = pack_padded_sequence(x, lens.cpu(), batch_first=True, enforce_sorted=False)
@@ -143,7 +143,7 @@ class PIENet(nn.Module):
         nn.init.constant_(self.fc.bias, 0.0)
 
     def forward(self, x_cls, x, pad_mask=None):
-        residual, attn = self.attention(x, mask)
+        residual, attn = self.attention(x, pad_mask)
         residual = self.dropout(self.sigmoid(self.fc(residual)))
         if self.n_embed > 1:
             x_cls = x_cls.unsqueeze(1).repeat(1, self.n_embed, 1)

@@ -355,6 +355,8 @@ def compute_ms_mod(model, out, batch):
     n_space =  model._config['n_embed']
     source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
 
+    # import pudb; pu.db
+    # image_emb, text_emb = out['image']['embedding'].unsqueeze(1), out[target]['embedding'].unsqueeze(1)
     image_emb, text_emb = out['image']['embedding'], out[target]['embedding']
     image_ext_mask, text_ext_mask = batch['image_ext_mask'], batch[f'{target}_ext_mask']
     _bs, d = len(image_ext_mask) // n_space, model._config['embed_dim']
