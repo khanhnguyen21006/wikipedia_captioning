@@ -82,10 +82,12 @@ class WitDataset(BaseDataset):
             self.descriptions = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_' + self.d_name + '.json'), 'r') as f:
             self.contexts = json.load(f)
-        with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
+        with open(os.path.join(self.d_folder, 'extracted/cider', self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
             self.extbydesc_contexts = json.load(f)
-        with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
+        with open(os.path.join(self.d_folder, 'extracted/cider', self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
             self.extbycap_contexts = json.load(f)
+        with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_SENTS_' + self.d_name + '.json'), 'r') as f:
+            self.context_sents = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_STRCAPS_' + self.d_name + '.json'), 'r') as f:
             self.captions = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_' + self.d_name + '.json'), 'r') as f:
@@ -101,10 +103,16 @@ class WitDataset(BaseDataset):
 
         image = self.images[i]
         description = self.descriptions[i]
-        if self.hparams['extract_context'] == 'by_desc':
-            context = self.extbydesc_contexts[i]
-        elif self.hparams['extract_context'] == 'by_cap':
-            context = self.extbycap_contexts[i]
+        if re.compile(r"by_desc_\d+").match(self.hparams['extract_context']):
+            pad = int(self.hparams['extract_context'].split('_')[-1]) // 2
+            sents = self.context_sents[i]
+            ind = sents.index(self.extbydesc_contexts[i])
+            context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
+        elif re.compile(r"by_cap_\d+").match(self.hparams['extract_context']):
+            pad = int(self.hparams['extract_context'].split('_')[-1]) // 2
+            sents = self.context_sents[i]
+            ind = sents.index(self.extbycap_contexts[i])
+            context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
         elif re.compile(r"first_\d+").match(self.hparams['extract_context']):
             n = int(self.hparams['extract_context'].split('_')[-1])
             context = merge(sent_tokenize(self.contexts[i]), n, do_sample=False)
@@ -449,9 +457,21 @@ class WitRetMultiDataset(BaseDataset):
                 self.gts = np.arange(self.d_size)[None, :].transpose(1, 0)
             elif self.mod == 'Sec':
                 with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_SENTS_wit.json'), 'r') as f:
-                    self.contexts = json.load(f)
-                self.gts = [ind for ind, c in enumerate(self.contexts) for _ in range(len(c) - self.wd + 1)]
-                self.contexts = [' '.join(c[_i:_i + self.wd]).strip() for c in self.contexts for _i in range(len(c) - self.wd + 1)]
+                    self.context_sents = json.load(f)
+                self.gts = []
+                for ind, c in enumerate(self.context_sents):
+                    if not len(c) < self.wd:
+                        for _ in range(len(c) - self.wd + 1):
+                            self.gts.append(ind)
+                    else:
+                        self.gts.append(ind)
+                self.contexts = []
+                for c in self.context_sents:
+                    if not len(c) < self.wd:
+                        for _i in range(len(c) - self.wd + 1):
+                            self.contexts.append(' '.join(c[_i:_i + self.wd]).strip())
+                    else:
+                        self.contexts.append(' '.join(c).strip())
                 self.d_size = len(self.contexts)
                 assert len(self.contexts) == len(self.gts)
             else:

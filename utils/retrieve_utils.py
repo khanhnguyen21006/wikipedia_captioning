@@ -392,16 +392,17 @@ def retrieve_multi(pl_module):
     dm = pl_module.trainer.datamodule
     dm.dataset = 'witretmulti'
     n_emb, prob_emb, mm_query, em = _config["n_embed"], _config['prob_embed'], _config['multi_query'], _config['eval_method']
+    source, target, test_split = _config['source_to_target']['source'], _config['source_to_target']['target'], _config['retrieval_testset']
     if 'test_1k' in _config['retrieval_testset']:
-        wd = em.split('_')[-1] if 'random' in em else ''
+        wd = em.split('_')[-1] if ('random' in em or 'max' in em) else ''
         txt_split = 'test_1k_RET_Sec' + f'_{wd}'
         im_split = 'test_1k_RET_Im' + f'_{wd}'
     elif'test_5k' in _config['retrieval_testset']:
-        wd = em.split('_')[-1] if 'random' in em else ''
+        wd = em.split('_')[-1] if ('random' in em or 'max' in em) else ''
         txt_split = 'test_5k_RET_Sec' + f'_{wd}'
         im_split = 'test_5k_RET_Im' + f'_{wd}'
     else:
-        txt_split = 'test_SecDeDup_RET' if _config['source_to_target']['target'] == 'section' else 'test_CapDeDup_RET'
+        txt_split = 'test_SecDeDup_RET' if target == 'section' else 'test_CapDeDup_RET'
         im_split = 'test_ImDeDup_RET'
 
     txt_dset = dm.get_ret_dset(txt_split)
@@ -488,6 +489,7 @@ def retrieve_multi(pl_module):
     if n_emb > 1 and prob_emb:
         im_logsig = torch.cat(im_logsig, dim=0)
 
+    sent_ret_matrix = None
     ret_matrix = torch.zeros(n_im, n_txt)
     if _config['eval_method'] == 'matmul':
         for idx, query in enumerate(im_embed):
@@ -512,8 +514,9 @@ def retrieve_multi(pl_module):
         assert s < n_emb, f"Invalid evaluation method: {_config['eval_method']}."
         ret_matrix = im_embed[:, s, :] @ txt_embed[:, s, :].t()
     elif 'match_sentence' in _config['eval_method']:
+        sent_ret_matrix = ret_matrix
         em = _config['eval_method']
-        assert em in ['match_sentence_max'] or re.match(r"match_sentence_max_random_\d", em)
+        assert re.match(r"match_sentence_max(_\d)+", em) or re.match(r"match_sentence_max_random_\d", em)
         agg = em.split('_')[2]
         if agg  == 'max':
             other = torch.tensor(-1e9).cuda()
@@ -532,7 +535,7 @@ def retrieve_multi(pl_module):
                     )
                     _score = _score.permute(0, 1, 3, 2)
                     _score = torch.sum(torch.sum(_score, axis=1), axis=1) # (n_txt)
-
+                sent_ret_matrix[idx] = _score
                 _score = _score.expand(n_im, -1)  # (n_im, n_txt)
                 ret_matrix[idx] = torch.max(torch.where(mask_matrix, _score, other), dim=-1).values
         else:
@@ -546,3 +549,28 @@ def retrieve_multi(pl_module):
     t2i = rank(np.transpose(ret_matrix), n_txt, refs=txt_gt)
     print("i2t retrieval: ", i2t)
     print("t2i retrieval: ", t2i)
+
+    expt_path = os.path.join(
+            _config['result_dir'], 'inference', _config['expt_name'], 'retrieve'
+        )
+    os.makedirs(expt_path, exist_ok=True)
+    print(f"Saving retrieval output to: {expt_path}")
+    if n_emb > 1:
+        if prob_emb:
+            if mm_query is None:
+                np.save(os.path.join(expt_path, f"image_to_{target}_score_{test_split}"), ret_matrix)
+                if sent_ret_matrix is not None:
+                    np.save(os.path.join(expt_path, f"image_to_{target}_sentence_score_{test_split}"), sent_ret_matrix)
+            else:
+                np.save(os.path.join(expt_path, f"image_{source[1]}_to_{target}_score_{test_split}"), ret_matrix)
+        else:
+            np.save(os.path.join(expt_path, f"image_to_{target}_score_{test_split}"), ret_matrix)
+            if sent_ret_matrix is not None:
+                np.save(os.path.join(expt_path, f"image_to_{target}_sentence_score_{test_split}"), sent_ret_matrix)
+    else: # DE
+        if mm_query is None:
+            np.save(os.path.join(expt_path, f"image_to_{target}_score_{test_split}"), ret_matrix)
+            if sent_ret_matrix is not None:
+                np.save(os.path.join(expt_path, f"image_to_{target}_sentence_score_{test_split}"), sent_ret_matrix)
+        else:
+            np.save(os.path.join(expt_path, f"image_{source[1]}_to_{target}_score_{test_split}"), ret_matrix)
