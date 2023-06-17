@@ -283,9 +283,15 @@ def retrieve_wrapup(pl_module):
     elif _config['eval_method'] == 'smooth_chamfer':
         assert n_emb > 1
         alpha = _config['chamfer_alpha']
-        image_emb = F.normalize(buffer['image_emb'], dim=-1)
-        text_emb = F.normalize(buffer['text_emb'], dim=-1)
-        ret_matrix = smooth_chamfer_loss(image_emb, text_emb, alpha, return_score=True)
+        buffer['image_emb'] = F.normalize(buffer['image_emb'], dim=-1)
+        buffer['text_emb'] = F.normalize(buffer['text_emb'], dim=-1)
+        # import pudb; pu.db
+        for idx in range(buffer['image_emb'].size(0)):
+            x, y = image_emb[idx].unsqueeze(0).expand_as(text_emb), text_emb
+            cosim = x.bmm(y.transpose(1, 2))  # (b, n, n)
+            x_score = 1/(2*alpha) * torch.mean(torch.logsumexp(alpha * cosim, dim=-1), dim=-1)  # (b)
+            y_score = 1/(2*alpha) * torch.mean(torch.logsumexp(alpha * cosim, dim=1), dim=-1)  # (b)
+            ret_matrix[idx] = (x_score + y_score).view(1, text_emb.size(0))  # (1, b)
     elif 'mse_space' in _config['eval_method']:
         s = int(_config['eval_method'].split('_')[-1])
         assert s < n_emb, f"Invalid evaluation method: {_config['eval_method']}."

@@ -169,6 +169,8 @@ def get_dataset_hparams(_config):
 	enc_tokenizer = get_tokenizer(encoder if has_encoder else decoder, path=vocab_path)
 	dec_tokenizer = get_tokenizer(decoder if has_decoder else encoder, path=vocab_path)
 
+	metric, extract_context = _config["extract_context"].split('_')[0], '_'.join(_config["extract_context"].split('_')[1:])
+
 	if not use_adapter and (use_gpt2_decoder or use_t5_decoder):  # for non-adapter models, images are processed separately
 		if image_size == 256:
 			text_ml = text_ml - 64
@@ -190,7 +192,8 @@ def get_dataset_hparams(_config):
 		'target_keys': target_keys,
 		'text_max_len': text_ml,
 		'num_space': _config["n_embed"],
-		'extract_context': _config["extract_context"]
+		'extract_context': extract_context,
+		'metric': metric
 	}
 
 class RoBERTaTokenizer():

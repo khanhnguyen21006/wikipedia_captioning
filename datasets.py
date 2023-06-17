@@ -82,12 +82,6 @@ class WitDataset(BaseDataset):
             self.descriptions = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_' + self.d_name + '.json'), 'r') as f:
             self.contexts = json.load(f)
-        with open(os.path.join(self.d_folder, 'extracted/cider', self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
-            self.extbydesc_contexts = json.load(f)
-        with open(os.path.join(self.d_folder, 'extracted/cider', self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
-            self.extbycap_contexts = json.load(f)
-        with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_SENTS_' + self.d_name + '.json'), 'r') as f:
-            self.context_sents = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_STRCAPS_' + self.d_name + '.json'), 'r') as f:
             self.captions = json.load(f)
         with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_' + self.d_name + '.json'), 'r') as f:
@@ -97,28 +91,40 @@ class WitDataset(BaseDataset):
         h = h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_' + self.d_name + '.hdf5'), 'r')
         self.images = h['images']
 
+    def load_extracted_context(self, metric):
+        if not hasattr(self, 'context_sents'):
+            if '_RET' not in self.split:
+                with open(os.path.join(self.d_folder, f"extracted/{metric}", self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
+                    self.extbydesc_contexts = json.load(f)
+                with open(os.path.join(self.d_folder, f"extracted/{metric}", self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
+                    self.extbycap_contexts = json.load(f)
+                with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_SENTS_' + self.d_name + '.json'), 'r') as f:
+                    self.context_sents = json.load(f)
+
     def __getitem__(self, i):
         if self.images is None:
             self.open_h5py()
 
         image = self.images[i]
         description = self.descriptions[i]
-        if re.compile(r"by_desc_\d+").match(self.hparams['extract_context']):
-            pad = int(self.hparams['extract_context'].split('_')[-1]) // 2
-            sents = self.context_sents[i]
-            ind = sents.index(self.extbydesc_contexts[i])
-            context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
-        elif re.compile(r"by_cap_\d+").match(self.hparams['extract_context']):
-            pad = int(self.hparams['extract_context'].split('_')[-1]) // 2
-            sents = self.context_sents[i]
-            ind = sents.index(self.extbycap_contexts[i])
-            context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
-        elif re.compile(r"first_\d+").match(self.hparams['extract_context']):
-            n = int(self.hparams['extract_context'].split('_')[-1])
-            context = merge(sent_tokenize(self.contexts[i]), n, do_sample=False)
-        elif re.compile(r"random_\d+").match(self.hparams['extract_context']):
-            n = int(self.hparams['extract_context'].split('_')[-1])
-            context = merge(sent_tokenize(self.contexts[i]), n)
+        if self.hparams['extract_context'] != '':
+            self.load_extracted_context(self.hparams['metric'])
+            if re.compile(r"by_desc_\d+").match(self.hparams['extract_context']):
+                pad = int(self.hparams['extract_context'].split('_')[-1]) // 2
+                sents = self.context_sents[i]
+                ind = sents.index(self.extbydesc_contexts[i])
+                context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
+            elif re.compile(r"by_cap_\d+").match(self.hparams['extract_context']):
+                pad = int(self.hparams['extract_context'].split('_')[-1]) // 2
+                sents = self.context_sents[i]
+                ind = sents.index(self.extbycap_contexts[i])
+                context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
+            elif re.compile(r"first_\d+").match(self.hparams['extract_context']):
+                n = int(self.hparams['extract_context'].split('_')[-1])
+                context = merge(sent_tokenize(self.contexts[i]), n, do_sample=False)
+            elif re.compile(r"random_\d+").match(self.hparams['extract_context']):
+                n = int(self.hparams['extract_context'].split('_')[-1])
+                context = merge(sent_tokenize(self.contexts[i]), n)
         else:
             context = self.contexts[i]
         caption = self.captions[i]
@@ -347,7 +353,10 @@ class WitPageDataset(BaseDataset):
             im_i = None if im_inpage[_i] == None else self.do_transform(self.images[im_inpage[_i]])
             ret.update({f"image_{_i+1}": im_i})
         for _i in range(len(sec_inpage)):
-            sec_i = None if sec_inpage[_i] == None else self.contexts[sec_inpage[_i]]
+            if isinstance(sec_inpage[_i], str):
+                sec_i = None if sec_inpage[_i] == None else sec_inpage[_i]
+            else:
+                sec_i = None if sec_inpage[_i] == None else self.contexts[sec_inpage[_i]]
             ret.update({f"section_{_i+1}": sec_i})
         return ret
 

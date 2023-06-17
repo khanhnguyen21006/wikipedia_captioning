@@ -88,8 +88,8 @@ def mmd_rbf_loss(x, y, gamma=None):
 def mil_loss(x, y, m=0.2, mine=False, return_score=False):
     assert len(x.size()) == len(y.size()) and x.size(0) == y.size(0)
     _bs = x.size(0)
-    x = F.normalize(x, p=2, dim=-1)  # (b*b, n, d)
-    y = F.normalize(y, p=2, dim=-1)  # (b*b, n, d)
+    x = F.normalize(x, p=2, dim=-1)  # (b, n, d)
+    y = F.normalize(y, p=2, dim=-1)  # (b, n, d)
     score = x.view(-1, x.size(-1)).mm(y.view(-1, y.size(-1)).t())
     score = model.max_pool(score.unsqueeze(0)).squeeze()
     if return_score:
@@ -268,7 +268,7 @@ def compute_vib(model, out):
 def compute_se(model, out):
     n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
     source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
-    margin,  hard_mining = model._config['margin'], model._config['hard_mining']
+    margin, hard_mining = model._config['margin'], model._config['hard_mining']
     assert n_emb > 1 and not prob_emb and mm_query is None
     image_emb, text_emb = out[source[0]]['embedding'], out[target]['embedding']
     if model._config['se_match'] == 'smooth_chamfer':
@@ -291,7 +291,7 @@ def compute_ms(model, out, batch):
     source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
     assert n_space == 3
 
-    image_emb, text_emb = out['image']['embedding'], out[target]['embedding']   
+    image_emb, text_emb = out['image']['embedding'], out[target]['embedding']
     image_ext_mask, text_ext_mask = batch['image_ext_mask'], batch[f'{target}_ext_mask']
     _bs, d = len(image_ext_mask) // n_space, model._config['embed_dim']
 
@@ -401,4 +401,3 @@ def compute_ms_mod(model, out, batch):
         ret[f"space{i}"] = (loss1 + loss2).item()
     ret["ms_loss"] = ms_loss
     return ret
-

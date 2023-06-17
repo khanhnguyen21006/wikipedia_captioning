@@ -15,6 +15,7 @@ def _loss_names(d):
 		"vib": 0,
 		"se": 0,
 		"ms": 0,
+		"pm": 1,
 	}
 	ret.update(d)
 	return ret
@@ -240,7 +241,7 @@ def prob_embed():
 	multi_query = None
 	# source_to_target = {'source': ['image', 'description'], 'target': 'section'}
 	source_to_target = {'source': ['image'], 'target': 'section'}
-	extract_context = 'random_2'
+	extract_context = 'cider_by_cap_3'
 
 	optimizer = "adamp"
 	learning_rate = 2e-4
@@ -324,3 +325,30 @@ def multi_space_embed():
 	max_epoch = 30
 	# per_gpu_batchsize = 128
 	per_gpu_batchsize = 64
+
+def page_mining():
+	expt_name = "page_margin"
+	# losses = _loss_names({"pe": 1, "vib": 1})
+	losses = _loss_names({"pm": 1})
+	image_encoder = 'openai/clip-vit-base-patch32'
+	text_encoder = 'sentence-transformers/all-distilroberta-v1'
+	text_decoder = None
+	image_encoder_finetune = False
+	text_encoder_finetune = False
+	text_decoder_finetune = False
+	embed_dim = 1024
+
+	n_embed = 1
+	source_to_target = {'source': ['image'], 'target': 'section'}
+	page_margin = 0.1
+	margin = 0.25
+
+	optimizer = "adamp"
+	learning_rate = 2e-4
+	weight_decay = 0.0001
+	lr_scheduler = 'cosine_annealing'
+
+	transform = 'clip_vit_h5py'
+	text_max_len = 512
+	max_epoch = 30
+	per_gpu_batchsize = 128
