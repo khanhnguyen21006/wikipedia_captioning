@@ -68,6 +68,12 @@ class PlayGround(pl.LightningModule):
 		if 'ms' in self.losses:
 			ret.update(objectives.compute_ms_mod(self.model, out, batch))
 
+		if 'pm' in self.losses:
+			ret.update(objectives.compute_pm(self.model, out, batch))
+
+		if 'clip' in self.losses:
+			ret.update(objectives.compute_clip(self.model, out))
+
 		return ret, out
 
 	def training_step(self, batch, batch_idx):
@@ -165,6 +171,14 @@ class PlayGround(pl.LightningModule):
 			self.log(f"se/{phase}/t2i", t2i, batch_size=self.hparams._config["per_gpu_batchsize"])
 			self.log(f"se/{phase}/r@1_per_batch", r1_per_batch, batch_size=self.hparams._config["per_gpu_batchsize"])
 			self.log(f"se/{phase}/se_loss", se_loss, batch_size=self.hparams._config["per_gpu_batchsize"])
+
+		if "clip" in self.losses:
+			clip_loss = getattr(self, f"{phase}_clip_loss")(output["clip_loss"])
+			i2t = getattr(self, f"{phase}_i2t")(output["i2t"])
+			t2i = getattr(self, f"{phase}_t2i")(output["t2i"])
+			self.log(f"clip/{phase}/i2t", i2t, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"clip/{phase}/t2i", t2i, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"clip/{phase}/clip_loss", clip_loss, batch_size=self.hparams._config["per_gpu_batchsize"])
 
 		if "ms" in self.losses:
 			ms_loss = getattr(self, f"{phase}_ms_loss")(output["ms_loss"])

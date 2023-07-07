@@ -229,8 +229,10 @@ def retrieve_wrapup(pl_module):
                 update_prob_embed(emb_out, model_out, mm_query, source, target, n_emb)
             else:
                 update_set_embed(emb_out, model_out, source, target)
+        elif n_emb == 1:
+            update_det_embed(emb_out, 'embedding', model_out, mm_query, source, target)
         else:
-            update_det_embed(emb_out, model_out, mm_query, source, target)
+            update_det_embed(emb_out, 'cls_embedding', model_out, mm_query, source, target)
     emb_out = {k: torch.cat(v, dim=0) for k, v in emb_out.items() if len(v) > 0}
 
     torch.distributed.barrier()
@@ -296,8 +298,14 @@ def retrieve_wrapup(pl_module):
         s = int(_config['eval_method'].split('_')[-1])
         assert s < n_emb, f"Invalid evaluation method: {_config['eval_method']}."
         ret_matrix = buffer['image_emb'][:, s, :] @ buffer['text_emb'][:, s, :].t()
+    elif _config['eval_method'] == 'clip':
+        assert n_emb == 0 and mm_query == None
+        image_emb = buffer['image_emb'] / buffer['image_emb'].norm(dim=-1, keepdim=True)
+        text_emb = buffer['text_emb'] / buffer['text_emb'].norm(dim=-1, keepdim=True)
+        image_emb, text_emb = image_emb.squeeze(1), text_emb.squeeze(1)
+        ret_matrix = torch.matmul(image_emb, text_emb.t()) * pl_module.model.image_encoder.logit_scale.exp()
     else:
-        raise f"Method {_config['eval_method']} is not supported for evaluation."
+        raise ValueError(f"Method {_config['eval_method']} is not supported for evaluation.")
 
     ret_matrix = ret_matrix.detach().cpu().numpy()
     i2t = rank(ret_matrix, n_query)
@@ -373,10 +381,10 @@ def update_set_embed(emb_out, model_out, source, target):
     emb_out['image_emb'].append(model_out[source[0]]['embedding'])
     emb_out['text_emb'].append(model_out[target]['embedding'])
 
-def update_det_embed(emb_out, model_out, mm_query, source, target):
-    _image_emb, _text_emb = model_out[source[0]]['embedding'].unsqueeze(1), model_out[target]['embedding'].unsqueeze(1)
+def update_det_embed(emb_out, key, model_out, mm_query, source, target):
+    _image_emb, _text_emb = model_out[source[0]][key].unsqueeze(1), model_out[target][key].unsqueeze(1)
     if mm_query is not None:
-        _im_emb, _txt_emb = model_out['image']['embedding'].unsqueeze(1), model_out[source[1]]['embedding'].unsqueeze(1)
+        _im_emb, _txt_emb = model_out['image'][key].unsqueeze(1), model_out[source[1]][key].unsqueeze(1)
         if mm_query == 'addition':
             _image_emb = _im_emb + _txt_emb
         if mm_query == 'average':
@@ -399,14 +407,19 @@ def retrieve_multi(pl_module):
     dm.dataset = 'witretmulti'
     n_emb, prob_emb, mm_query, em = _config["n_embed"], _config['prob_embed'], _config['multi_query'], _config['eval_method']
     source, target, test_split = _config['source_to_target']['source'], _config['source_to_target']['target'], _config['retrieval_testset']
+    assert re.match(r"match_sentence_(max|first)_(\d+)", em)
+
+    if 'max' in em or 'first' in em:
+        ext, wd = em.split('_')[-2], em.split('_')[-1]
+    else:
+        ext, wd = '', ''
+
     if 'test_1k' in _config['retrieval_testset']:
-        wd = em.split('_')[-1] if ('random' in em or 'max' in em) else ''
-        txt_split = 'test_1k_RET_Sec' + f'_{wd}'
-        im_split = 'test_1k_RET_Im' + f'_{wd}'
+        txt_split = 'test_1k_RET_Sec' + f'_{ext}_{wd}'
+        im_split = 'test_1k_RET_Im' + f'_{ext}_{wd}'
     elif'test_5k' in _config['retrieval_testset']:
-        wd = em.split('_')[-1] if ('random' in em or 'max' in em) else ''
-        txt_split = 'test_5k_RET_Sec' + f'_{wd}'
-        im_split = 'test_5k_RET_Im' + f'_{wd}'
+        txt_split = 'test_5k_RET_Sec' + f'_{ext}_{wd}'
+        im_split = 'test_5k_RET_Im' + f'_{ext}_{wd}'
     else:
         txt_split = 'test_SecDeDup_RET' if target == 'section' else 'test_CapDeDup_RET'
         im_split = 'test_ImDeDup_RET'
@@ -432,7 +445,7 @@ def retrieve_multi(pl_module):
         pin_memory=True,
         collate_fn=partial(im_dset.collate),
     )
-    # import pudb; pu.db
+
     txt_embed, txt_logsig, txt_gt = list(), list(), list()
     for _b in tqdm.tqdm(txt_loader, desc='embedding text loop'):
         _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
@@ -441,8 +454,10 @@ def retrieve_multi(pl_module):
         if n_emb > 1 and prob_emb:
             txt_embed.append(txt_out['embedding'])
             txt_logsig.append(txt_out['logsigma'])
-        else:
+        elif n_emb == 1:
             txt_embed.append(txt_out['embedding'])
+        else:
+            txt_embed.append(txt_out['cls_embedding'])
         txt_gt += _b['retrieve_gt']
 
     txt_embed = torch.cat(txt_embed, dim=0)
@@ -478,7 +493,7 @@ def retrieve_multi(pl_module):
                     im_logsig.append(img_out['logsigma'])
             else: # SE
                 im_embed.append(img_out['embedding'])
-        else: # DE
+        elif n_emb == 1: # DE
             if mm_query is not None:
                 txt_out = pl_module.model.encode_text(_b, 'description')
                 _im_emb, _txt_emb = img_out['embedding'].unsqueeze(1), txt_out['embedding'].unsqueeze(1)
@@ -489,6 +504,8 @@ def retrieve_multi(pl_module):
                 im_embed.append(_image_emb)
             else:
                 im_embed.append(img_out['embedding'])
+        else:
+            im_embed.append(img_out['cls_embedding'])
         im_gt += _b['retrieve_gt']
 
     im_embed = torch.cat(im_embed, dim=0)
@@ -521,8 +538,6 @@ def retrieve_multi(pl_module):
         ret_matrix = im_embed[:, s, :] @ txt_embed[:, s, :].t()
     elif 'match_sentence' in _config['eval_method']:
         sent_ret_matrix = ret_matrix
-        em = _config['eval_method']
-        assert re.match(r"match_sentence_max(_\d)+", em) or re.match(r"match_sentence_max_random_\d", em)
         agg = em.split('_')[2]
         if agg  == 'max':
             other = torch.tensor(-1e9).cuda()
@@ -531,10 +546,16 @@ def retrieve_multi(pl_module):
             for _i in range(n_im):
                 mask_matrix[_i] = torch.tensor(np.array(txt_gt) == _i) 
             for idx, query in tqdm.tqdm(enumerate(im_embed), desc="compute score"):
-                query = query.unsqueeze(0)
-                query = query.view(len(query) * n_emb, -1)
-                gallery = txt_embed.view(n_txt * n_emb, -1).t()
-                _score = query.mm(gallery)
+                if 'clip' in _config['losses']:
+                    if idx == 0:
+                        txt_embed = txt_embed / txt_embed.norm(dim=-1, keepdim=True)
+                    query = query / query.norm(dim=-1, keepdim=True)
+                    _score = query.unsqueeze(0).mm(txt_embed.t()) * pl_module.model.image_encoder.logit_scale.exp()
+                else:
+                    query = query.unsqueeze(0)
+                    query = query.view(len(query) * n_emb, -1)
+                    gallery = txt_embed.view(n_txt * n_emb, -1).t()
+                    _score = query.mm(gallery)
                 if n_emb > 1:
                     _score = _score.view(
                         len(query)//n_emb, n_emb, gallery.size()[-1]//n_emb, n_emb
@@ -544,12 +565,21 @@ def retrieve_multi(pl_module):
                 sent_ret_matrix[idx] = _score
                 _score = _score.expand(n_im, -1)  # (n_im, n_txt)
                 ret_matrix[idx] = torch.max(torch.where(mask_matrix, _score, other), dim=-1).values
+        elif agg == 'first':
+            if 'clip' in _config['losses']:
+                text_emb = text_emb / text_emb.norm(dim=-1, keepdim=True)
+                im_embed = im_embed / im_embed.norm(dim=-1, keepdim=True)
+                ret_matrix = im_embed.mm(txt_embed.t()) * pl_module.model.image_encoder.logit_scale.exp()
+            else:
+                ret_matrix = im_embed.mm(txt_embed.t())
         else:
             raise ValueError("Unsupported aggregator.")
         im_gt, txt_gt, n_txt = None, None, n_im
+    elif 'clip' == _config['eval_method']:
+        ret_matrix = im_embed @ txt_embed.t() * pl_module.model.image_encoder.logit_scale.exp()
     else:
         raise f"Method {_config['eval_method']} is not supported for evaluation."
-
+    # import pudb; pu.db
     ret_matrix = ret_matrix.detach().cpu().numpy()
     i2t = rank(ret_matrix, n_im, refs=im_gt)
     t2i = rank(np.transpose(ret_matrix), n_txt, refs=txt_gt)

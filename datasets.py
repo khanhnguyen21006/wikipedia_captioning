@@ -3,7 +3,6 @@ import torch
 import abc
 import os, json, h5py, re
 import numpy as np
-from nltk.tokenize import sent_tokenize
 
 from pycocotools.coco import COCO
 from PIL import Image
@@ -92,21 +91,33 @@ class WitDataset(BaseDataset):
         self.images = h['images']
 
     def load_extracted_context(self, metric):
-        if not hasattr(self, 'context_sents'):
+        if not hasattr(self, 'context_sents') and not hasattr(self, 'description_sents'):
             if '_RET' not in self.split:
-                with open(os.path.join(self.d_folder, f"extracted/{metric}", self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
-                    self.extbydesc_contexts = json.load(f)
-                with open(os.path.join(self.d_folder, f"extracted/{metric}", self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
-                    self.extbycap_contexts = json.load(f)
+                if metric is not None:
+                    with open(os.path.join(self.d_folder, f"extracted/{metric}", self.split + '_STRCONTEXTS_BYDESC_' + self.d_name + '.json'), 'r') as f:
+                        self.extbydesc_contexts = json.load(f)
+                    with open(os.path.join(self.d_folder, f"extracted/{metric}", self.split + '_STRCONTEXTS_BYCAP_' + self.d_name + '.json'), 'r') as f:
+                        self.extbycap_contexts = json.load(f)
                 with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRCONTEXTS_SENTS_' + self.d_name + '.json'), 'r') as f:
                     self.context_sents = json.load(f)
+                with open(os.path.join(self.d_folder, 'extracted', self.split + '_STRDESCS_SENTS_' + self.d_name + '.json'), 'r') as f:
+                    self.description_sents = json.load(f)
 
     def __getitem__(self, i):
         if self.images is None:
             self.open_h5py()
 
         image = self.images[i]
-        description = self.descriptions[i]
+        if self.hparams['extract_context'] != '':
+            self.load_extracted_context(self.hparams['metric'])
+            if re.compile(r"first_\d+").match(self.hparams['extract_context']):
+                n = int(self.hparams['extract_context'].split('_')[-1])
+                description = merge(self.description_sents[i], n, do_sample=False)
+            elif re.compile(r"random_\d+").match(self.hparams['extract_context']):
+                n = int(self.hparams['extract_context'].split('_')[-1])
+                description = merge(self.description_sents[i], n)
+        else:
+            description = self.descriptions[i]
         if self.hparams['extract_context'] != '':
             self.load_extracted_context(self.hparams['metric'])
             if re.compile(r"by_desc_\d+").match(self.hparams['extract_context']):
@@ -121,10 +132,10 @@ class WitDataset(BaseDataset):
                 context = ' '.join(sents[ind-pad:ind+pad+1]).strip()
             elif re.compile(r"first_\d+").match(self.hparams['extract_context']):
                 n = int(self.hparams['extract_context'].split('_')[-1])
-                context = merge(sent_tokenize(self.contexts[i]), n, do_sample=False)
+                context = merge(self.context_sents[i], n, do_sample=False)
             elif re.compile(r"random_\d+").match(self.hparams['extract_context']):
                 n = int(self.hparams['extract_context'].split('_')[-1])
-                context = merge(sent_tokenize(self.contexts[i]), n)
+                context = merge(self.context_sents[i], n)
         else:
             context = self.contexts[i]
         caption = self.captions[i]
@@ -456,7 +467,7 @@ class WitRetMultiDataset(BaseDataset):
             self.d_size = len(self.contexts)
         elif '_RET' in self.split:  # get sentence tokenized data
             t = self.split.split('_')
-            self.split, self.mod, self.wd = '_'.join(t[:-2]), t[-2], int(t[-1])
+            self.split, self.mod, self.ext, self.wd = '_'.join(t[:-3]), t[-3], t[-2], int(t[-1])
             if self.mod == 'Im':
                 self.images = None
                 with h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_wit.hdf5'), 'r') as h:
@@ -467,20 +478,24 @@ class WitRetMultiDataset(BaseDataset):
             elif self.mod == 'Sec':
                 with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_SENTS_wit.json'), 'r') as f:
                     self.context_sents = json.load(f)
-                self.gts = []
-                for ind, c in enumerate(self.context_sents):
-                    if not len(c) < self.wd:
-                        for _ in range(len(c) - self.wd + 1):
+                if self.ext == 'first':
+                    self.gts = [_i for _i in range(len(self.context_sents))]
+                    self.contexts = [_c[0] if len(_c) > 0 else '' for _c in self.context_sents]
+                else:
+                    self.gts = []
+                    for ind, c in enumerate(self.context_sents):
+                        if not len(c) < self.wd:
+                            for _ in range(len(c) - self.wd + 1):
+                                self.gts.append(ind)
+                        else:
                             self.gts.append(ind)
-                    else:
-                        self.gts.append(ind)
-                self.contexts = []
-                for c in self.context_sents:
-                    if not len(c) < self.wd:
-                        for _i in range(len(c) - self.wd + 1):
-                            self.contexts.append(' '.join(c[_i:_i + self.wd]).strip())
-                    else:
-                        self.contexts.append(' '.join(c).strip())
+                    self.contexts = []
+                    for c in self.context_sents:
+                        if not len(c) < self.wd:
+                            for _i in range(len(c) - self.wd + 1):
+                                self.contexts.append(' '.join(c[_i:_i + self.wd]).strip())
+                        else:
+                            self.contexts.append(' '.join(c).strip())
                 self.d_size = len(self.contexts)
                 assert len(self.contexts) == len(self.gts)
             else:

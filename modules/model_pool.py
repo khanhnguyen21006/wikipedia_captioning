@@ -6,7 +6,7 @@ from torchvision import models
 
 from transformers import GPT2Config, GPT2LMHeadModel,\
 						T5Config, T5ForConditionalGeneration,\
-						ViTModel, CLIPVisionModel,\
+						ViTModel, CLIPModel,\
 						AutoModel
 import logging
 from .data_pool import get_tokenizer, Vocabulary
@@ -30,7 +30,7 @@ def get_image_encoder(_config):
 		model = ViT(_name, embed_dim, finetune)
 		dim = model.d
 	elif 'openai/clip' in _name:
-		model = CLIPImageEncoder(_name, embed_dim, finetune)
+		model = CLIPImageEncoder(_name, embed_dim, finetune, _config["image_encoder_use_linear_layer"])
 		dim = model.d
 	else:
 		raise ValueError(f"{_name} Image Encoder is not supported.")
@@ -57,6 +57,9 @@ def get_text_encoder(_config):
 		dim = T5Config.from_pretrained('t5-base').d_model
 	elif 'sentence-transformers' in _name:
 		model = SentenceTransformers(_name, embed_dim, finetune)
+		dim = model.d
+	elif 'openai/clip' in _name:
+		model = CLIPTextEncoder(_name, embed_dim, finetune, _config["text_encoder_use_linear_layer"])
 		dim = model.d
 	elif _name == 'gru':
 		model = GRU(**_config)
@@ -503,37 +506,53 @@ class ResNet(nn.Module):
 			return X, X_cls
 
 class ViT(nn.Module):
-	def __init__(self, name, d_emb, finetune):
+	def __init__(self, name, d_emb, finetune, use_linear=False):
 		super(ViT, self).__init__()
 		self.vit = ViTModel.from_pretrained(name)
 		self.d = self.vit.config.hidden_size
-		self.fc = nn.Sequential(
-			nn.Linear(self.d, d_emb),
-			nn.LayerNorm(d_emb),
-			# nn.Dropout(),
-			nn.GELU(),
-		)
-		vilt_init_weights(self.fc[0])
+		self.use_linear = use_linear
+		if not use_linear:
+			self.fc = nn.Sequential(
+				nn.Linear(self.d, d_emb),
+				nn.LayerNorm(d_emb),
+				# nn.Dropout(),
+				nn.GELU(),
+			)
+			vilt_init_weights(self.fc[0])
+		else:
+			self.d = self.vit.config.hidden_size
+			assert self.d == d_emb
 		set_finetune(self.vit, finetune)
 
 	def forward(self, X):
 		X = self.vit(X)
-		X_cls = self.fc(X.pooler_output)
+		if self.use_linear:
+			X_cls = X.pooler_output
+		else:
+			X_cls = self.fc(X.pooler_output)
 		X = X.last_hidden_state[:, 1:, :]
 		return X, X_cls
 
 class CLIPImageEncoder(nn.Module):
-	def __init__(self, name, d_emb, finetune):
+	def __init__(self, name, d_emb, finetune, use_linear=False):
 		super(CLIPImageEncoder, self).__init__()
-		self.clip_image_encoder = CLIPVisionModel.from_pretrained(name)
-		self.d = self.clip_image_encoder.config.hidden_size
-		self.fc = nn.Sequential(
-			nn.Linear(self.d, d_emb),
-			nn.LayerNorm(d_emb),
-			# nn.Dropout(),
-			nn.GELU(),
-		)
-		vilt_init_weights(self.fc[0])
+		clip = CLIPModel.from_pretrained(name)
+		self.clip_image_encoder = clip.vision_model
+		if not use_linear:
+			self.d = self.clip_image_encoder.config.hidden_size
+			self.fc = nn.Sequential(
+				nn.Linear(self.d, d_emb),
+				nn.LayerNorm(d_emb),
+				# nn.Dropout(),
+				nn.GELU(),
+			)
+			vilt_init_weights(self.fc[0])
+		else:
+			self.d = clip.config.projection_dim
+			self.fc = clip.visual_projection
+			assert self.d == d_emb
+			set_finetune(clip.visual_projection, finetune)
+			self.logit_scale = clip.logit_scale
 		set_finetune(self.clip_image_encoder, finetune)
 
 	def forward(self, X):
@@ -541,6 +560,34 @@ class CLIPImageEncoder(nn.Module):
 		X_cls = self.fc(X.pooler_output)
 		X = X.last_hidden_state[:, 1:, :]
 		return X, X_cls
+
+class CLIPTextEncoder(nn.Module):
+	def __init__(self, name, d_emb, finetune, use_linear=False):
+		super(CLIPTextEncoder, self).__init__()
+		clip = CLIPModel.from_pretrained(name)
+		self.clip_text_encoder = clip.text_model
+		if not use_linear:
+			self.d = self.clip_text_encoder.config.hidden_size
+			self.fc = nn.Sequential(
+				nn.Linear(self.d, d_emb),
+				nn.LayerNorm(d_emb),
+				# nn.Dropout(),
+				nn.GELU(),
+			)
+			vilt_init_weights(self.fc[0])
+		else:
+			self.d = clip.config.projection_dim
+			self.fc = clip.text_projection
+			assert self.d == d_emb
+			set_finetune(clip.text_projection, finetune)
+		set_finetune(self.clip_text_encoder, finetune)
+
+	def forward(self, X, **kwargs):
+		X = self.clip_text_encoder(input_ids=X, attention_mask=kwargs['mask'])
+		X_cls = self.fc(X.pooler_output)
+		X = X.last_hidden_state[:, 1:, :]
+		X_mask = kwargs['mask'].bool()
+		return X, X_cls, X_mask
 
 class SentenceTransformers(nn.Module):
 	def __init__(self, name, d_emb, finetune):

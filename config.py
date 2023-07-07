@@ -15,7 +15,8 @@ def _loss_names(d):
 		"vib": 0,
 		"se": 0,
 		"ms": 0,
-		"pm": 1,
+		"pm": 0,
+		"clip": 0,
 	}
 	ret.update(d)
 	return ret
@@ -30,9 +31,10 @@ def config():
 	data_folder = '/data/users/vkhanh/all'
 	transform = 'resnet_h5py'
 	extract_context = ''
+	context_source = 'section'
 
 	losses = _loss_names({"lm": 1})
-	batch_size = 256  # accumulated batch size.
+	batch_size = 512  # accumulated batch size.
 
 	# default config values
 	image_encoder = 'resnet152'  # mandatory
@@ -45,6 +47,8 @@ def config():
 	image_encoder_finetune = False
 	text_encoder_finetune = False
 	text_decoder_finetune = False
+	image_encoder_use_linear_layer = False
+	text_encoder_use_linear_layer = False
 	text_max_len = 512
 	text_embed = 'glove'  # for RNNs
 	text_dim = 300  # for RNNs
@@ -169,8 +173,8 @@ def eval():
 	# run_caption = True
 
 	run_retrieve = True
-	retrieval_testset = 'test_5k_multi_RET'
-	eval_method = 'match_sentence'
+	retrieval_testset = 'test_5k_multi_RET' # 'test_5k_multi_RET', 'test_5k_RET'
+	eval_method =  'match_sentence_max_2' # 'match_sentence_max_2', 'clip'
 	num_gpus = 1
 
 
@@ -240,8 +244,8 @@ def prob_embed():
 	# vib_lambda = 0.00001
 	multi_query = None
 	# source_to_target = {'source': ['image', 'description'], 'target': 'section'}
-	source_to_target = {'source': ['image'], 'target': 'section'}
-	extract_context = 'cider_by_cap_3'
+	source_to_target = {'source': ['description'], 'target': 'section'}
+	# extract_context = 'cider_by_cap_3'
 
 	optimizer = "adamp"
 	learning_rate = 2e-4
@@ -326,6 +330,7 @@ def multi_space_embed():
 	# per_gpu_batchsize = 128
 	per_gpu_batchsize = 64
 
+@ex.named_config
 def page_mining():
 	expt_name = "page_margin"
 	# losses = _loss_names({"pe": 1, "vib": 1})
@@ -352,3 +357,38 @@ def page_mining():
 	text_max_len = 512
 	max_epoch = 30
 	per_gpu_batchsize = 128
+
+
+@ex.named_config
+def finetune_clip():
+	expt_name = "finetune_clip"
+	losses = _loss_names({"clip": 1})
+	image_encoder = 'openai/clip-vit-base-patch32'
+	text_encoder = 'openai/clip-vit-base-patch32'
+	text_decoder = None
+	image_encoder_finetune = True
+	text_encoder_finetune = True
+
+	# image_encoder_use_linear_layer = False
+	# text_encoder_use_linear_layer = False
+	# embed_dim = 1024
+	image_encoder_use_linear_layer = True
+	text_encoder_use_linear_layer = True
+	embed_dim = 512
+
+	n_embed = 0
+	multi_query = None
+	source_to_target = {'source': ['image'], 'target': 'section'}
+	# source_to_target = {'source': ['image'], 'target': 'description'}
+	extract_context = ''
+	# extract_context = 'None_random_2'
+
+	optimizer = "adamw"
+	learning_rate = 1e-5
+	weight_decay = 0.01
+	lr_scheduler = 'with_warmup'
+
+	transform = 'clip_vit_h5py'
+	text_max_len = 77
+	max_epoch = 30
+	per_gpu_batchsize = 256

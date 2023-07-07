@@ -16,6 +16,8 @@ def get_tokenizer(_name, path=None):
 		return GPT2Tokenizer(_name)
 	elif "t5" in _name:
 		return T5Tokenizer()
+	elif "clip" in _name:
+		return CLIPTokenizer(_name)
 	elif _name == "roberta":
 		return RoBERTaTokenizer()
 	elif 'sentence-transformers' in _name:
@@ -47,11 +49,10 @@ def get_transform(method):
 			'val': t.Compose([
 				t.Resize((image_size, image_size)),
 				t.ToTensor(),
-			
 				t.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 			])
 		}
-	elif method == 'image_net': 
+	elif method == 'image_net':
 		return {
 			'train': t.Compose([
 				t.RandomResizedCrop(224),
@@ -136,7 +137,7 @@ WIT_COMPOSITION = ['section_caption', 'section_prompt']
 
 TEXT_ENCODER_KEYS = ['description', 'section', 'description_section']
 TEXT_ENCODER_NUMERICS = [
-	'description_id', 'description_mask', 'section_id', 'section_mask', 
+	'description_id', 'description_mask', 'section_id', 'section_mask',
 	'description_section_id', 'description_section_mask'
 ]
 TEXT_DECODER_KEYS = ['caption', 'prompt', 'section_caption', 'section_prompt'
@@ -145,9 +146,9 @@ TEXT_DECODER_KEYS = ['caption', 'prompt', 'section_caption', 'section_prompt'
 TEXT_DECODER_NUMERICS = [
 		'caption_id', 'caption_mask', 'prompt_id', 'prompt_mask',
 		'section_caption_id', 'section_caption_mask', 'section_prompt_id', 'section_prompt_mask',
-		'description_caption_id', 'description_prompt_id', 'description_caption_mask', 'description_prompt_mask', 
-		'description_section_caption_id', 'description_section_prompt_id', 
-		'description_section_caption_mask', 'description_section_prompt_mask', 
+		'description_caption_id', 'description_prompt_id', 'description_caption_mask', 'description_prompt_mask',
+		'description_section_caption_id', 'description_section_prompt_id',
+		'description_section_caption_mask', 'description_section_prompt_mask',
 	]
 NUMERICS = ['image'] + TEXT_ENCODER_NUMERICS + TEXT_DECODER_NUMERICS
 
@@ -169,7 +170,8 @@ def get_dataset_hparams(_config):
 	enc_tokenizer = get_tokenizer(encoder if has_encoder else decoder, path=vocab_path)
 	dec_tokenizer = get_tokenizer(decoder if has_decoder else encoder, path=vocab_path)
 
-	metric, extract_context = _config["extract_context"].split('_')[0], '_'.join(_config["extract_context"].split('_')[1:])
+	ext_args = _config["extract_context"].split('_')
+	metric, extract_context = None if ext_args[0] == 'None' else ext_args[0], '_'.join(ext_args[1:])
 
 	if not use_adapter and (use_gpt2_decoder or use_t5_decoder):  # for non-adapter models, images are processed separately
 		if image_size == 256:
@@ -193,7 +195,7 @@ def get_dataset_hparams(_config):
 		'text_max_len': text_ml,
 		'num_space': _config["n_embed"],
 		'extract_context': extract_context,
-		'metric': metric
+		'metric': metric,
 	}
 
 class RoBERTaTokenizer():
@@ -221,11 +223,11 @@ class RoBERTaTokenizer():
 class GPT2Tokenizer():
 	def __init__(self, name):
 		if name == "gpt2++":
-			self.tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2', 
+			self.tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2',
 				bos_token='<|startoftext|>', eos_token='<|endoftext|>', sep_token='<|sep|>', pad_token='<pad>'
 			)
 		else:
-			self.tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2', 
+			self.tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2',
 				bos_token='<|startoftext|>', eos_token='<|endoftext|>', pad_token='<pad>')
 
 	def get_length(self):
@@ -235,11 +237,11 @@ class GPT2Tokenizer():
 		sos, eos = self.tokenizer.bos_token, self.tokenizer.eos_token
 		if any(isinstance(i, list) for i in texts):
 			sep, pad = self.tokenizer.sep_token, self.tokenizer.pad_token_id
-			cap_encodings = self.tokenizer([f'{sep}{t}{eos}' if t else sep for t in texts[-1]], 
-                                    return_tensors="pt", padding="longest", truncation=True, max_length=100)
+			cap_encodings = self.tokenizer([f'{sep}{t}{eos}' if t else sep for t in texts[-1]],
+									return_tensors="pt", padding="longest", truncation=True, max_length=100)
 			cntx = [sos + ''.join([f'{t_}' for t_ in t]) for t in zip(*texts[:-1])]
-			cntx_encodings = self.tokenizer(cntx, return_tensors="pt", truncation=True, padding="longest", 
-                                                max_length=(max_len-len(cap_encodings['input_ids'][0])))
+			cntx_encodings = self.tokenizer(cntx, return_tensors="pt", truncation=True, padding="longest",
+												max_length=(max_len-len(cap_encodings['input_ids'][0])))
 			tokens = merge_padded_tensors(cntx_encodings['input_ids'], cap_encodings['input_ids'], pad)
 			cntx_masks = cntx_encodings['attention_mask'] * (-100)
 			masks = merge_padded_tensors(cntx_masks, cap_encodings['attention_mask'])
@@ -265,6 +267,16 @@ class T5Tokenizer(AutoTokenizer):
 	def __init__(self):
 		super().__init__()
 		self.tokenizer = transformers.T5Tokenizer.from_pretrained('t5-base')
+
+class CLIPTokenizer(AutoTokenizer):
+	def __init__(self, name):
+		super().__init__()
+		self.tokenizer = transformers.CLIPTokenizer.from_pretrained(name)
+
+	def tokenize(self, texts, max_len):
+		encodings = self.tokenizer(texts, return_tensors="pt", padding="longest", truncation=True, max_length=max_len)
+		tokens, masks = encodings['input_ids'], encodings['attention_mask']
+		return tokens, masks
 
 class SentenceTransformersTokenizer(AutoTokenizer):
 	def __init__(self, name):

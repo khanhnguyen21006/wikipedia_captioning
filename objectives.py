@@ -401,3 +401,27 @@ def compute_ms_mod(model, out, batch):
         ret[f"space{i}"] = (loss1 + loss2).item()
     ret["ms_loss"] = ms_loss
     return ret
+
+def compute_clip(model, out):
+    n_emb, prob_emb, mm_query = model._config['n_embed'], model._config['prob_embed'], model._config['multi_query']
+    source, target = model._config['source_to_target']['source'], model._config['source_to_target']['target']
+    assert n_emb == 0 and not prob_emb and mm_query is None
+    image_emb, text_emb = out[source[0]]['cls_embedding'], out[target]['cls_embedding']
+
+    # normalized features
+    image_emb = image_emb / image_emb.norm(dim=-1, keepdim=True)
+    text_emb = text_emb / text_emb.norm(dim=-1, keepdim=True)
+
+    # cosine similarity as logits
+    logits_per_image = torch.matmul(image_emb, text_emb.t()) * model.image_encoder.logit_scale.exp()
+    logits_per_text = logits_per_image.T
+
+    i2t = F.cross_entropy(logits_per_image, torch.arange(len(logits_per_image), device=logits_per_image.device))
+    t2i = F.cross_entropy(logits_per_text, torch.arange(len(logits_per_text), device=logits_per_text.device))
+    ret = {
+        'i2t': i2t.item(),
+        't2i': t2i.item(),
+        # 'r@1_per_batch': recall.item(),
+        'clip_loss': (i2t + t2i) / 2.0,
+    }
+    return ret

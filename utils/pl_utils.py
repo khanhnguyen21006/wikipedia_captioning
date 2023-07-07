@@ -34,10 +34,14 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_logsig_l2_loss", Scalar())
 				setattr(pl_module, f"{split}_r@1_per_batch", Scalar())
 			elif k == "se":
-				setattr(pl_module, f"{split}_{k}_loss", Scalar())
+				setattr(pl_module, f"{split}_se_loss", Scalar())
 				setattr(pl_module, f"{split}_i2t", Scalar())
 				setattr(pl_module, f"{split}_t2i", Scalar())
 				setattr(pl_module, f"{split}_r@1_per_batch", Scalar())
+			elif k == "clip":
+				setattr(pl_module, f"{split}_clip_loss", Scalar())
+				setattr(pl_module, f"{split}_i2t", Scalar())
+				setattr(pl_module, f"{split}_t2i", Scalar())
 			elif k == "vib":
 				setattr(pl_module, f"{split}_vib_loss", Scalar())
 				setattr(pl_module, f"{split}_image_volume", Scalar())
