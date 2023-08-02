@@ -436,10 +436,10 @@ def scst_t5_clip_caption_cider_clips():
 	per_gpu_batchsize = 32
 	precision = 32
 
-	self_critical_after = 1
+	self_critical_after = 5
 	scst_batchsize = 8
-	sample_max_len = 20
-	sample_n = 2
+	sample_max_len = 30
+	sample_n = 3
 	num_beam = 1
 	cider_lambda = 1.
 	clip_lambda = 3.
@@ -473,9 +473,10 @@ def scst_t5_clip_caption_cider():
 	per_gpu_batchsize = 32
 	precision = 32
 
-	self_critical_after = 1
+	self_critical_after = 5
 	scst_batchsize = 8
-	sample_max_len = 20
+	sample_max_len = 30
 	sample_n = 3
 	num_beam = 1
 	cider_lambda = 1.
+

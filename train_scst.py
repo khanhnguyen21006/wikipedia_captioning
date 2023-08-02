@@ -25,7 +25,7 @@ class RLCaptionPlModule(pl.LightningModule):
 		super(RLCaptionPlModule, self).__init__()
 		self.save_hyperparameters()
 
-		# TODO: 1. init model (write nn.Module with: architecture, forward, sampling, generate) 
+		# TODO: 1. init model (write nn.Module with: architecture, forward, sampling, generate)
 		self.model = build_model(_config)
 
 		utils.set_metrics(self)
@@ -201,7 +201,7 @@ class RLCaptionPlModule(pl.LightningModule):
 
 		cider_reward = kwargs["cider_lambda"] * cider_scores
 		cider_reward = (cider_reward[:_ss].reshape(_bs, seq_per_img) - cider_reward[-_bs:][:, np.newaxis]).reshape(_ss)  # _ss == b*n
-		cider_reward = np.repeat(cider_reward[:, np.newaxis], ml, 1)  # (b*n, ml,) 
+		cider_reward = np.repeat(cider_reward[:, np.newaxis], ml, 1)  # (b*n, ml,)
 
 		cider_reward = torch.from_numpy(cider_reward).to(sample_logprobs)
 		cider_reward = cider_reward.reshape(-1)
