@@ -294,7 +294,7 @@ class WitPageDataset(BaseDataset):
         self.split = split
         assert split in {'train', 'val', 'test', 'test_1k_RET', 'test_5k_RET'}
 
-        super().__init__(*args, **kwargs)  
+        super().__init__(*args, **kwargs)
 
     def load_data(self):
         self.images = None
@@ -554,5 +554,42 @@ class WitRetMultiDataset(BaseDataset):
         if 'SecDeDup' in self.split or ('_RET' in self.split and self.mod == 'Sec'):
             dict_batch['section_id'], dict_batch['section_mask'] = self.hparams['enc_tokenizer'].tokenize(
                     dict_batch['section'], self.hparams['text_max_len']
+                )
+        return dict_batch
+
+class RLWitDataset(WitDataset):
+    def __init__(self, split, *args, **kwargs):
+        super().__init__(split, *args, **kwargs)
+
+    def load_data(self):
+        self.d_name = 'wit'
+        self.images = None
+        with h5py.File(os.path.join(self.d_folder, self.split + '_IMAGES_' + self.d_name + '.hdf5'), 'r') as h:
+            self.d_size = len(h['images'])
+        with open(os.path.join(self.d_folder, self.split + '_STRDESCS_' + self.d_name + '.json'), 'r') as f:
+            self.descriptions = json.load(f)
+        with open(os.path.join(self.d_folder, self.split + '_STRCONTEXTS_' + self.d_name + '.json'), 'r') as f:
+            self.contexts = json.load(f)
+        with open(os.path.join(self.d_folder, self.split + '_STRCAPS_' + self.d_name + '.json'), 'r') as f:
+            self.captions = json.load(f)
+        with open(os.path.join(self.d_folder, self.split + '_IMAGEIDS_' + self.d_name + '.json'), 'r') as f:
+            self.ids = json.load(f)
+
+    def collate(self, batch):
+        keys = set([key for b in batch for key in b.keys()])
+        dict_batch = {k: [b[k] if k in b else None for b in batch] for k in keys}
+
+        dict_batch['image'] = torch.stack(dict_batch['image'])
+        for k in ['description']:
+            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['enc_tokenizer'].tokenize(
+                    build_context(dict_batch, k), 77
+                )
+        for k in ['section']:
+            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['dec_tokenizer'].tokenize(
+                    build_context(dict_batch, k), self.hparams['text_max_len']
+                )
+        for k in ['caption']:
+            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['dec_tokenizer'].tokenize(
+                    build_context(dict_batch, k), 100
                 )
         return dict_batch

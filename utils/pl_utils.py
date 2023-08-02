@@ -50,6 +50,9 @@ def set_metrics(pl_module):
 				setattr(pl_module, f"{split}_ms_loss", Scalar())
 				for _i in range(pl_module.hparams._config["n_embed"]):
 					setattr(pl_module, f"{split}_space{_i}", Scalar())
+			elif k == "cider" or k == "clips":
+				setattr(pl_module, f"{split}_{k}_loss", Scalar())
+				setattr(pl_module, f"{split}_{k}_reward", Scalar())
 			else:
 				setattr(pl_module, f"{split}_{k}_loss", Scalar())
 

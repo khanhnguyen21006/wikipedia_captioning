@@ -2,17 +2,16 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from models import Model
+from modules import build_model
 import objectives
 import utils
 
-
-class PlayGround(pl.LightningModule):
+class PlModule(pl.LightningModule):
 	def __init__(self, _config):
-		super(PlayGround, self).__init__()
+		super(PlModule, self).__init__()
 		self.save_hyperparameters()
 
-		self.model = Model(_config)
+		self.model = build_model(_config)
 
 		# ========= Finetune after training if needed =========== #
 		if _config['load_path'] != '' and not _config['test']:
@@ -36,7 +35,7 @@ class PlayGround(pl.LightningModule):
 
 	def forward(self, batch):
 		ret = dict()
-		out = self.model.encode(batch)
+		out = self.model(batch)
 
 		if 'lm' in self.losses:
 			ret.update(objectives.compute_lm(self.model, out))
@@ -93,12 +92,12 @@ class PlayGround(pl.LightningModule):
 		utils.epoch_wrapup(self)
 
 	def test_step(self, batch, batch_idx):
-		# ret, out = self(batch)
-		# self.log_metrics(ret)
-		# if self.hparams._config['run_caption']:
-		# 	return self.model.generate(batch, out, **self.trainer.datamodule.collate_hparams)
-		# return
-		pass
+		ret, out = self(batch)
+		self.log_metrics(ret)
+		if self.hparams._config['run_caption']:
+			return self.model.generate(batch, out, **self.trainer.datamodule.collate_hparams)
+		return
+		# pass
 
 	def test_epoch_end(self, outs):
 		if self.hparams._config['run_caption']:
@@ -128,7 +127,7 @@ class PlayGround(pl.LightningModule):
 			if _loss in self.losses:
 				_loss_val = getattr(self, f"{phase}_{_loss}_loss")(output[f"{_loss}_loss"])
 				self.log(f"{_loss}/{phase}/loss", _loss_val, batch_size=self.hparams._config["per_gpu_batchsize"])
-		
+
 		if "pe" in self.losses or "de" in self.losses:
 			_loss = "pe" if "pe" in self.losses else "de"
 			if phase == "train":

@@ -8,7 +8,6 @@ from modules.data_pool import *
 
 from functools import partial
 
-
 class DataModule(LightningDataModule):
     def __init__(self, _config, dist=False):
         super(DataModule, self).__init__()
@@ -22,7 +21,7 @@ class DataModule(LightningDataModule):
         self.collate_hparams = get_dataset_hparams(_config)
 
         self.collate_fn = None
-        
+
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None

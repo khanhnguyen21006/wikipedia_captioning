@@ -223,7 +223,7 @@ def retrieve_wrapup(pl_module):
     emb_out = {k: list() for k in EMBED_OUT}
     for _b in tqdm.tqdm(ret_loader, desc="test retrieval loop"):
         _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
-        model_out = pl_module.model.encode(_b)
+        model_out = pl_module.model(_b)
         if n_emb > 1:
             if prob_emb:
                 update_prob_embed(emb_out, model_out, mm_query, source, target, n_emb)
@@ -449,7 +449,7 @@ def retrieve_multi(pl_module):
     txt_embed, txt_logsig, txt_gt = list(), list(), list()
     for _b in tqdm.tqdm(txt_loader, desc='embedding text loop'):
         _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
-        txt_out = pl_module.model.encode_text(_b, 'section')
+        txt_out = pl_module.model._encode_text(_b, 'section')
         
         if n_emb > 1 and prob_emb:
             txt_embed.append(txt_out['embedding'])
@@ -467,12 +467,12 @@ def retrieve_multi(pl_module):
     im_embed, im_logsig, im_gt = list(), list(), list()
     for _b in tqdm.tqdm(im_loader, desc='embedding image loop'):
         _b = {_k: (_v.to(pl_module.device) if isinstance(_v, torch.Tensor) else _v) for _k, _v in _b.items()}
-        img_out = pl_module.model.encode_image(_b)
+        img_out = pl_module.model._encode_image(_b)
 
         if n_emb > 1:
             if prob_emb: # PE
                 if mm_query is not None:
-                    txt_out = pl_module.model.encode_text(_b, 'description')
+                    txt_out = pl_module.model._encode_text(_b, 'description')
                     _im_emb, _im_logsig = img_out['embedding'], img_out['logsigma']
                     _txt_emb, _txt_logsig = txt_out['embedding'], txt_out['logsigma']
                     if mm_query == 'addition':
@@ -495,7 +495,7 @@ def retrieve_multi(pl_module):
                 im_embed.append(img_out['embedding'])
         elif n_emb == 1: # DE
             if mm_query is not None:
-                txt_out = pl_module.model.encode_text(_b, 'description')
+                txt_out = pl_module.model._encode_text(_b, 'description')
                 _im_emb, _txt_emb = img_out['embedding'].unsqueeze(1), txt_out['embedding'].unsqueeze(1)
                 if mm_query == 'addition':
                     _image_emb = _im_emb + _txt_emb

@@ -112,13 +112,13 @@ def log_1d_mixture_gaussian(x, om, mu, logsig, log=True):
         :return likelihoods: (b, h, n)
     """
     # feature-wise log-likelihoods
-    
+
     log_p = log_gaussian(
         x[:, None, None, :, None],  # (b, 1, 1, m, 1)
         mu[:, :, :, None ,:],  # (b, h, n, 1, K)
         logsig[:, :, :, None ,:]  # (b, h, n, 1, K)
     ) # (b, h, n, m, K)
-   
+
     log_p = (om[:, :, :, None ,:] * log_p).sum(-1) # (b, h, n, m)
     assert ~any(log_p < 0)
     if not log:
@@ -202,3 +202,10 @@ def distributed_all_gather_nd(x):
         all_tensors.append(_tensor[:_size[0]])
     all_tensors = torch.cat(all_tensors, dim=0)
     return all_tensors
+
+def repeat_tensor_batch_dim(n, x):
+    """ (b, ...) ==> (bxn, ...)"""
+    x = x.unsqueeze(1)
+    x = x.expand(-1, n, *([-1]*len(x.shape[2:])))
+    x = x.reshape(x.shape[0]*n, *x.shape[2:])
+    return x

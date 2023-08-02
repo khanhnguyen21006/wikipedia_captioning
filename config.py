@@ -17,6 +17,8 @@ def _loss_names(d):
 		"ms": 0,
 		"pm": 0,
 		"clip": 0,
+		"cider": 0,
+		"clips": 0,
 	}
 	ret.update(d)
 	return ret
@@ -34,9 +36,10 @@ def config():
 	context_source = 'section'
 
 	losses = _loss_names({"lm": 1})
-	batch_size = 512  # accumulated batch size.
+	batch_size = 256  # accumulated batch size.
 
 	# default config values
+	model = 'multi_encoder_single_decoder' # default
 	image_encoder = 'resnet152'  # mandatory
 	text_encoder = None  # optional 'roberta'|'gru'|'sbert'|'st5'|'t5-adapter'
 	text_decoder = None  # optional 'gpt-2'|'t5'
@@ -66,6 +69,15 @@ def config():
 	margin = 0.2  # for set embedding
 	hard_mining = False  # for set embedding
 	chamfer_alpha = 1
+
+	self_critical_after = -1
+	scst_batchsize = 0
+	sample_max_len = 50  # for RL experiments
+	sample_n = 5
+	num_beam = 1
+	cider_lambda = 0.
+	clip_lambda = 0.
+	clip_ckpt = None
 
 	# Optimizer Setting
 	optimizer = "adamp"
@@ -170,11 +182,11 @@ def eval():
 	expt_name = "eval"
 	# load_path = ''
 	test = True
-	# run_caption = True
+	run_caption = True
 
-	run_retrieve = True
-	retrieval_testset = 'test_5k_multi_RET' # 'test_5k_multi_RET', 'test_5k_RET'
-	eval_method =  'match_sentence_max_2' # 'match_sentence_max_2', 'clip'
+	# run_retrieve = True
+	# retrieval_testset = 'test_5k_RET' # 'test_5k_multi_RET', 'test_5k_RET'
+	# eval_method =  'clip' # 'match_sentence_max_2', 'clip'
 	num_gpus = 1
 
 
@@ -244,7 +256,7 @@ def prob_embed():
 	# vib_lambda = 0.00001
 	multi_query = None
 	# source_to_target = {'source': ['image', 'description'], 'target': 'section'}
-	source_to_target = {'source': ['description'], 'target': 'section'}
+	source_to_target = {'source': ['image'], 'target': 'section'}
 	# extract_context = 'cider_by_cap_3'
 
 	optimizer = "adamp"
@@ -379,16 +391,91 @@ def finetune_clip():
 	n_embed = 0
 	multi_query = None
 	source_to_target = {'source': ['image'], 'target': 'section'}
-	# source_to_target = {'source': ['image'], 'target': 'description'}
 	extract_context = ''
 	# extract_context = 'None_random_2'
 
 	optimizer = "adamw"
-	learning_rate = 1e-5
+	learning_rate = 1e-7
 	weight_decay = 0.01
 	lr_scheduler = 'with_warmup'
 
 	transform = 'clip_vit_h5py'
 	text_max_len = 77
 	max_epoch = 30
+	batch_size = 512
 	per_gpu_batchsize = 256
+
+
+@ex.named_config
+def scst_t5_clip_caption_cider_clips():
+	expt_name = "scst_t5_clip_caption_cider_clips"
+	model = "rl_t5_caption_model"
+	dataset = 'rlwit'
+	losses = _loss_names({"lm": 1, "cider": 1, "clips": 1})
+	image_encoder = 'openai/clip-vit-base-patch32'
+	text_encoder = 'openai/clip-vit-base-patch32'
+	text_decoder = 't5++'
+	image_encoder_finetune = False
+	text_encoder_finetune = False
+	text_decoder_finetune = True
+	image_encoder_use_linear_layer = True
+	text_encoder_use_linear_layer = True
+	embed_dim = 512
+
+	n_embed = 0
+
+	optimizer = "adamw"
+	learning_rate = 1e-4
+	weight_decay = 0.01
+	lr_scheduler = 'with_warmup'
+	max_epoch = 10
+	warmup_steps = 500
+
+	transform = 'clip_vit_h5py'
+	text_max_len = 512
+	per_gpu_batchsize = 32
+	precision = 32
+
+	self_critical_after = 1
+	scst_batchsize = 8
+	sample_max_len = 20
+	sample_n = 2
+	num_beam = 1
+	cider_lambda = 1.
+	clip_lambda = 3.
+	clip_ckpt = 'result/clip_i2d_1e7_seed0/version_0/checkpoints/last.ckpt'
+
+@ex.named_config
+def scst_t5_clip_caption_cider():
+	expt_name = "scst_t5_clip_caption_cider"
+	model = "rl_t5_caption_model"
+	dataset = 'rlwit'
+	losses = _loss_names({"lm": 1, "cider": 1})
+	image_encoder = 'openai/clip-vit-base-patch32'
+	text_encoder = None
+	text_decoder = 't5++'
+	image_encoder_finetune = False
+	text_encoder_finetune = False
+	text_decoder_finetune = True
+
+	embed_dim = 768
+	n_embed = 0
+
+	optimizer = "adamw"
+	learning_rate = 1e-4
+	weight_decay = 0.01
+	lr_scheduler = 'with_warmup'
+	max_epoch = 10
+	warmup_steps = 500
+
+	transform = 'clip_vit_h5py'
+	text_max_len = 512
+	per_gpu_batchsize = 32
+	precision = 32
+
+	self_critical_after = 1
+	scst_batchsize = 8
+	sample_max_len = 20
+	sample_n = 3
+	num_beam = 1
+	cider_lambda = 1.

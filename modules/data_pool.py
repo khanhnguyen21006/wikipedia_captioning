@@ -128,6 +128,8 @@ def get_dataset(name):
 		return GoodNewsDataset
 	# elif name == 'nytimes800k':
 	# 	return NYTimesDataset
+	if name == 'rlwit':
+		return RLWitDataset
 	else:
 		raise Exception(f"{key} Dataset is not supported.")
 
@@ -135,7 +137,7 @@ COMPOSITION = ['section_caption', 'section_prompt']
 WIT_COMPOSITION = ['section_caption', 'section_prompt']
 #, 'description_caption', 'description_prompt','description_section_caption', 'description_section_prompt'
 
-TEXT_ENCODER_KEYS = ['description', 'section', 'description_section']
+TEXT_ENCODER_KEYS = ['description', 'section', 'description_section', 'caption']
 TEXT_ENCODER_NUMERICS = [
 	'description_id', 'description_mask', 'section_id', 'section_mask',
 	'description_section_id', 'description_section_mask'
@@ -180,12 +182,15 @@ def get_dataset_hparams(_config):
 			text_ml = text_ml - 49
 
 	if name in ["wit", "witpage", "wikiweb2m"]:
-		context_keys = ['description', 'section'] \
+		context_keys = ['description', 'section'] + (['caption'] if not has_decoder else []) \
 						+ (WIT_COMPOSITION if use_gpt2pp_decoder else [])
 	else:
-		context_keys = ['section'] \
+		context_keys = ['section'] + (['caption'] if not has_decoder else []) \
 						+ (COMPOSITION if use_gpt2pp_decoder else [])
-	target_keys = ['caption'] + (['prompt'] if use_gpt2_decoder else [])
+	if has_decoder:
+		target_keys = ['caption'] + (['prompt'] if use_gpt2_decoder else [])
+	else:
+		target_keys = []
 
 	return {
 		'enc_tokenizer': enc_tokenizer,

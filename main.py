@@ -1,6 +1,5 @@
 import os
 import copy
-import json
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.utilities.model_summary import ModelSummary
@@ -8,7 +7,7 @@ from pytorch_lightning.utilities.model_summary import ModelSummary
 from config import ex
 
 from datamodules import DataModule
-from pl_module import PlayGround
+from pl_module import PlModule
 
 
 @ex.automain
@@ -18,7 +17,7 @@ def main(_config):
 
     exp_name = f'{_config["expt_name"]}'
 
-    model = PlayGround(_config)
+    model = PlModule(_config)
     data_module = DataModule(_config, dist=_config['distributed'])
 
     os.makedirs(_config["result_dir"], exist_ok=True)

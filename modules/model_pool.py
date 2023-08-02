@@ -124,7 +124,7 @@ class GPT2(nn.Module):
 	def __init__(self, cfg, tokenizer, finetune):
 		super(GPT2, self).__init__()
 		self.gpt2 = GPT2LMHeadModel.from_pretrained("gpt2", config=cfg)
-		self.gpt2.resize_token_embeddings(tokenizer.get_length())
+		self.gpt2.resize_token_embeddings(len(tokenizer))
 		self.finetune_gpt2(finetune)
 
 	def finetune_gpt2(self, ft):
@@ -204,7 +204,7 @@ class GPT2(nn.Module):
 		X_image = kwargs['image']['embedding']
 		X_text = kwargs['section']['embedding'][kwargs['section']['mask']]
 		X_in = torch.cat([X_image, X_text], dim=1)
-		
+
 		X = {
 			'X': X,
 			'X_in': X_in,
@@ -353,9 +353,10 @@ class T5(nn.Module):
 		self.finetune_t5(finetune)
 
 	def finetune_t5(self, ft):
-		for n, p in self.t5.decoder.named_parameters():
-			if ('decoder' not in n) or (not any([True if (l in n) else False for l in T5_ADAPTER_LAYERS])):
-				p.requires_grad = ft
+		for n, p in self.t5.named_parameters():
+			# if ('decoder' not in n) or (not any([True if (l in n) else False for l in T5_ADAPTER_LAYERS])):
+			# 	p.requires_grad = ft
+			p.requires_grad = ft
 
 	def forward(self, **kwargs):
 		kwargs = self.prepare_forward(**kwargs)
