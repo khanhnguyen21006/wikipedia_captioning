@@ -261,14 +261,13 @@ class OnEpochStartCallback(pl.Callback):
 		if _config["self_critical_after"] != -1 and epoch >= _config["self_critical_after"]:
 			pl_module.sc_flag = True
 			trainer.callbacks[1].best_model_score = None
+			trainer.val_check_interval = 0.05
 			init_scorer()
 
 			torch.cuda.empty_cache()
 			ll_names = ', '.join([_ll for _ll in pl_module.losses if _ll != 'lm']).strip()
 			print(f"====== STARTED Self Critical Sequence Training with objectives: {ll_names}  ======")
-			import time; time.sleep(60)  # WORKAROUND due to gpu memory is not freed after epoch completion
-		else:
-			pl_module.sc_flag = False
+			import time; time.sleep(60)  # WORKAROUND: due to gpu memory is not freed after epoch completion
 
 def init_scorer():
 	global CiderD_scorer
