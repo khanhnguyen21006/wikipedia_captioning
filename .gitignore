@@ -8,3 +8,5 @@ utils/figures/
 utils/ema.ipynb
 utils/visualize_utils.py
 utils/custom_cider.py
+environment.yml
+cider/*
