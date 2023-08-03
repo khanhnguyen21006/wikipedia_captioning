@@ -159,7 +159,6 @@ class RLT5CaptionModel(nn.Module):
 	def forward(self, batch, sc_flag, **kwargs):
 		X_encode = self._encode(batch)
 		if sc_flag:
-			import pudb; pu.db
 			if kwargs["cider_baseline"] == "greedy":
 				self.eval()
 				with torch.no_grad():
