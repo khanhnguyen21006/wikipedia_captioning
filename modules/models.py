@@ -158,26 +158,40 @@ class RLT5CaptionModel(nn.Module):
 
 	def forward(self, batch, sc_flag, **kwargs):
 		X_encode = self._encode(batch)
-
 		if sc_flag:
-			self.eval()
-			with torch.no_grad():
-				sample_inputs = self._prepare_sample_inputs(**X_encode)
-				greedy_seq, _ = self._sample(greedy=True, **sample_inputs, **kwargs)
+			import pudb; pu.db
+			if kwargs["cider_baseline"] == "greedy":
+				self.eval()
+				with torch.no_grad():
+					sample_inputs = self._prepare_sample_inputs(**X_encode)
+					baseline_seq, _ = self._sample(greedy=True, **sample_inputs, **kwargs)
+			else:
+				assert kwargs['cider_baseline'] in ["description", "caption"]
+				baseline_seq = batch[f"{kwargs['cider_baseline']}_id"]
 
 			self.train()
 			sample_inputs = self._prepare_sample_inputs(sample_n=kwargs["sample_n"], **X_encode)
 			sample_seq, sample_logprobs = self._sample(**sample_inputs, **kwargs)
 
 			outputs = {
-				"greedy_sample_seq": greedy_seq,
+				"baseline_seq": baseline_seq,
 				"sample_seq": sample_seq,
 				"sample_logprobs": sample_logprobs,
-				"caption": batch["caption"],
+				"caption": batch["caption"], # this will be both CIDEr&CLIP(ground truth)
 				"caption_id": batch["caption_id"],
 				"caption_mask": batch["caption_mask"],
+				f"{kwargs['cider_baseline']}": batch[f"{kwargs['cider_baseline']}"], # this will be CIDEr(baseline)
+				f"{kwargs['cider_baseline']}_id": batch[f"{kwargs['cider_baseline']}_id"],
+				f"{kwargs['cider_baseline']}_mask": batch[f"{kwargs['cider_baseline']}_mask"],
 				"image_cls": X_encode["image"]["cls_embedding"],
 			}
+			if kwargs['clip_baseline'] != "":
+				assert kwargs['clip_baseline'] in ["description", "caption"]
+				outputs.update({
+					f"{kwargs['clip_baseline']}": batch[f"{kwargs['clip_baseline']}"], # this will be CLIP(baseline)
+					f"{kwargs['clip_baseline']}_id": batch[f"{kwargs['clip_baseline']}_id"],
+					f"{kwargs['clip_baseline']}_mask": batch[f"{kwargs['clip_baseline']}_mask"],
+				})
 		else:
 			X_out, X_label = self.text_decoder(**X_encode)
 			outputs = {

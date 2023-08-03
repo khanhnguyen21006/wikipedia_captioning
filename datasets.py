@@ -580,11 +580,7 @@ class RLWitDataset(WitDataset):
         dict_batch = {k: [b[k] if k in b else None for b in batch] for k in keys}
 
         dict_batch['image'] = torch.stack(dict_batch['image'])
-        for k in ['description']:
-            dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['enc_tokenizer'].tokenize(
-                    build_context(dict_batch, k), 77
-                )
-        for k in ['section']:
+        for k in ['section', 'description']:
             dict_batch[f'{k}_id'], dict_batch[f'{k}_mask'] = self.hparams['dec_tokenizer'].tokenize(
                     build_context(dict_batch, k), self.hparams['text_max_len']
                 )

@@ -156,9 +156,10 @@ class RLCaptionPlModule(pl.LightningModule):
 
 		sample_max_len = self.hparams._config.get("sample_max_len", True)
 		use_cache = self.hparams._config.get("use_cache", True)
-		num_beam = self.hparams._config.get("n_beam", 1)
+		# num_beam = self.hparams._config.get("n_beam", 1)
 		sample_n = self.hparams._config.get("sample_n", 5)
-		early_stop = self.hparams._config.get("early_stop", True)
+		# early_stop = self.hparams._config.get("early_stop", True)
+		cider_baseline = self.hparams._config.get("cider_baseline", "greedy")
 		cider_lambda = self.hparams._config.get("cider_lambda", True)
 		clip_lambda = self.hparams._config.get("clip_lambda", True)
 
@@ -167,29 +168,30 @@ class RLCaptionPlModule(pl.LightningModule):
 			"enc_tokenizer": enc_tokenizer,
 			"sample_max_len": sample_max_len,
 			"use_cache": use_cache,
-			"num_beam": num_beam,
+			# "num_beam": num_beam,
 			"sample_n": sample_n,
-			"early_stop": early_stop,
+			# "early_stop": early_stop,
+			"cider_baseline": cider_baseline,
 			"cider_lambda": cider_lambda,
 			"clip_lambda": clip_lambda,
 		}
 
 	def cider_reward(self, out, **kwargs):
 		sample_logprobs = torch.stack(out["sample_logprobs"], dim=1)
-		sample_seq, greedy_sample_seq = out["sample_seq"], out["greedy_sample_seq"]
+		sample_seq, baseline_seq = out["sample_seq"], out["baseline_seq"]
 
 		_bs, _ss = len(out["caption"]), out["sample_seq"].size(0)
 		seq_per_img, ml = _ss//_bs, sample_seq.size(1)-1
-		assert greedy_sample_seq.size(0) == _bs
+		assert baseline_seq.size(0) == _bs
 
 		res, gts = OrderedDict(), OrderedDict()
 		dec_tokenizer = kwargs["dec_tokenizer"].tokenizer
 		sample_res = dec_tokenizer.batch_decode(sample_seq, skip_special_tokens=True)
-		greedy_res = dec_tokenizer.batch_decode(greedy_sample_seq, skip_special_tokens=True)
+		baseline_res = dec_tokenizer.batch_decode(baseline_seq, skip_special_tokens=True)
 		for i in range(_ss):
 			res[i] = sample_res[i]
 		for i in range(_bs):
-			res[_ss + i] = greedy_res[i]
+			res[_ss + i] = baseline_res[i]
 		for i in range(_bs):
 			gts[i] = [out["caption"][i]]
 
@@ -228,7 +230,7 @@ class RLCaptionPlModule(pl.LightningModule):
 		# greedy_decoded = dec_tokenizer.tokenizer.batch_decode(greedy_sample_seq, skip_special_tokens=True)
 
 		with torch.no_grad():
-			text_tokens, text_mask = enc_tokenizer.tokenize(sample_decoded + out["caption"], 77)
+			text_tokens, text_mask = enc_tokenizer.tokenize(sample_decoded + out[kwargs["clip_baseline"]], 77)
 			text_tokens, text_mask = text_tokens.to(self.device), text_mask.to(self.device)
 			_, text_cls, _ = self.model.text_encoder(text_tokens, mask=text_mask)
 			image_cls = torch.cat([utils.repeat_tensor_batch_dim(kwargs["sample_n"], out["image_cls"]), out["image_cls"]], dim=0)

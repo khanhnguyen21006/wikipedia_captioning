@@ -74,7 +74,9 @@ def config():
 	scst_batchsize = 0
 	sample_max_len = 50  # for RL experiments
 	sample_n = 5
-	num_beam = 1
+	# num_beam = 1
+	cider_baseline = "" # "greedy"|"description"|"caption"
+	clip_baseline = "" # "description"|"caption"
 	cider_lambda = 0.
 	clip_lambda = 0.
 	clip_ckpt = None
@@ -440,7 +442,8 @@ def scst_t5_clip_caption_cider_clips():
 	scst_batchsize = 8
 	sample_max_len = 30
 	sample_n = 3
-	num_beam = 1
+	cider_baseline = "greedy"
+	clip_baseline = "caption"
 	cider_lambda = 1.
 	clip_lambda = 3.
 	clip_ckpt = 'result/clip_i2d_1e7_seed0/version_0/checkpoints/last.ckpt'
@@ -477,6 +480,6 @@ def scst_t5_clip_caption_cider():
 	scst_batchsize = 8
 	sample_max_len = 30
 	sample_n = 3
-	num_beam = 1
+	cider_baseline = "greedy"
 	cider_lambda = 1.
 
