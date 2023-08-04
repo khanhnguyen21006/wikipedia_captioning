@@ -440,7 +440,7 @@ def scst_t5_clip_caption_cider_clips():
 
 	self_critical_after = 5
 	scst_batchsize = 8
-	sample_max_len = 30
+	sample_max_len = 20
 	sample_n = 3
 	cider_baseline = "greedy"
 	clip_baseline = "caption"
@@ -478,7 +478,7 @@ def scst_t5_clip_caption_cider():
 
 	self_critical_after = 5
 	scst_batchsize = 8
-	sample_max_len = 30
+	sample_max_len = 20
 	sample_n = 3
 	cider_baseline = "greedy"
 	cider_lambda = 1.

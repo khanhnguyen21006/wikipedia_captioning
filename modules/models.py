@@ -167,7 +167,6 @@ class RLT5CaptionModel(nn.Module):
 			else:
 				assert kwargs['cider_baseline'] in ["description", "caption"]
 				baseline_seq = batch[f"{kwargs['cider_baseline']}_id"]
-
 			self.train()
 			sample_inputs = self._prepare_sample_inputs(sample_n=kwargs["sample_n"], **X_encode)
 			sample_seq, sample_logprobs = self._sample(**sample_inputs, **kwargs)
@@ -179,7 +178,7 @@ class RLT5CaptionModel(nn.Module):
 				"caption": batch["caption"], # this will be both CIDEr&CLIP(ground truth)
 				"caption_id": batch["caption_id"],
 				"caption_mask": batch["caption_mask"],
-				f"{kwargs['cider_baseline']}": batch[f"{kwargs['cider_baseline']}"], # this will be CIDEr(baseline)
+				f"{kwargs['cider_baseline']}": batch[f"{kwargs['cider_baseline']}"], # this will be CIDEr((non-greedy)baseline)
 				f"{kwargs['cider_baseline']}_id": batch[f"{kwargs['cider_baseline']}_id"],
 				f"{kwargs['cider_baseline']}_mask": batch[f"{kwargs['cider_baseline']}_mask"],
 				"image_cls": X_encode["image"]["cls_embedding"],
@@ -197,8 +196,7 @@ class RLT5CaptionModel(nn.Module):
 				'loss': X_out['loss'],
 				'logits': X_out['logits'][..., :-1, :].contiguous(),
 			}
-
-		return outputs
+		return outputs, X_encode
 
 	def _encode(self, batch):
 		X_encode = dict()
@@ -231,7 +229,7 @@ class RLT5CaptionModel(nn.Module):
 		# 3. Define other model kwargs
 		# 4. Define decoder input
 		# 5. run search
-		input_ids = kwargs["decoder_input_ids"]
+		input_ids = kwargs.pop("decoder_input_ids")
 		_bs = input_ids.size(0)
 
 		unfinished = input_ids.new(_bs).fill_(1)
@@ -245,7 +243,7 @@ class RLT5CaptionModel(nn.Module):
 		next_logits, next_log_probs = (), ()
 
 		while True:
-			model_inputs = self._prepare_model_inputs(**kwargs)
+			model_inputs = self._prepare_model_inputs(input_ids, **kwargs)
 
 			outputs = self.text_decoder.t5(
 				**model_inputs,
@@ -270,7 +268,7 @@ class RLT5CaptionModel(nn.Module):
 			input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
 
 			if "past_key_values" in outputs:
-				model_inputs["past_key_values"] = outputs.past_key_values
+				kwargs["past_key_values"] = outputs.past_key_values
 			# cur_len = cur_len + 1
 
 			if eos_token_id is not None:
@@ -280,6 +278,11 @@ class RLT5CaptionModel(nn.Module):
 				break
 
 		return input_ids, next_log_probs
+
+	def generate(self, batch, X_encode, **kwargs):
+		X_generate = {k:v for k,v in batch.items() if k not in NUMERICS}
+		X_generate['generated'] = self.text_decoder.generate(**X_encode, **kwargs)
+		return X_generate
 
 	def _prepare_sample_inputs(self, sample_n=1, past=None, **kwargs):
 		text_id, mask_text, X_image, mask_image = *(
@@ -311,9 +314,12 @@ class RLT5CaptionModel(nn.Module):
 		}
 		return ret_dict
 
-	def _prepare_model_inputs(self, **kwargs):
+	def _prepare_model_inputs(self, input_ids, **kwargs):
+		# cut decoder_input_ids if past is used
+		if kwargs["past_key_values"] is not None:
+			input_ids = input_ids[:, -1:]
 		return {
-			"decoder_input_ids": kwargs["decoder_input_ids"],
+			"decoder_input_ids": input_ids,
 			"attention_mask": kwargs["attention_mask"],
 			"use_cache": kwargs["use_cache"],
 			"encoder_outputs": kwargs["encoder_outputs"],

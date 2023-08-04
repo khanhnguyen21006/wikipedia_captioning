@@ -28,6 +28,13 @@ class RLCaptionPlModule(pl.LightningModule):
 		# TODO: 1. init model (write nn.Module with: architecture, forward, sampling, generate)
 		self.model = build_model(_config)
 
+		# ========= Finetune after training if needed =========== #
+		if _config['load_path'] != '' and not _config['test']:
+			print('Loading pretrained weights for fine-tuning...')
+			ckpt = torch.load(_config['load_path'], map_location='cpu')
+			state_dict = ckpt['state_dict']
+			self.load_state_dict(state_dict, strict=False)
+
 		utils.set_metrics(self)
 		self.losses = list()
 		utils.set_loss(self)
@@ -45,7 +52,7 @@ class RLCaptionPlModule(pl.LightningModule):
 		ret = dict()
 
 		kwargs = self.prepare_forward()
-		out = self.model(batch, self.sc_flag, **kwargs)
+		out, X_encode = self.model(batch, self.sc_flag, **kwargs)
 
 		# TODO: 2.implementing traing losses
 		if 'lm' in self.losses and not self.sc_flag:
@@ -59,10 +66,12 @@ class RLCaptionPlModule(pl.LightningModule):
 			loss, reward = self.clip_reward(out, **kwargs)
 			ret.update({"clips_loss": loss, "clips_reward": reward})
 
-		return ret, out
+		if not self.training:
+			ret.update({"X_encode": X_encode})
+		return ret
 
 	def training_step(self, batch, batch_idx):
-		ret, _ = self(batch)
+		ret = self(batch)
 		self.log_metrics(ret)
 		t_loss = sum([ret[f"{l}_loss"] for l in self.losses if f"{l}_loss" in ret])
 		return t_loss
@@ -71,19 +80,18 @@ class RLCaptionPlModule(pl.LightningModule):
 		self.epoch_wrapup()
 
 	def validation_step(self, batch, batch_idx):
-		ret, _ = self(batch)
+		ret = self(batch)
 		self.log_metrics(ret)
 
 	def validation_epoch_end(self, outs):
 		self.epoch_wrapup()
 
 	def test_step(self, batch, batch_idx):
-		# ret, out = self(batch)
-		# self.log_metrics(ret)
-		# if self.hparams._config['run_caption']:
-		# 	return self.model.generate(batch, out, **self.trainer.datamodule.collate_hparams)
-		# return
-		pass
+		ret = self(batch)
+		self.log_metrics(ret)
+		if self.hparams._config['run_caption']:
+			return self.model.generate(batch, ret["X_encode"], **self.trainer.datamodule.collate_hparams)
+		return
 
 	def test_epoch_end(self, outs):
 		if self.hparams._config['run_caption']:
@@ -155,11 +163,12 @@ class RLCaptionPlModule(pl.LightningModule):
 		assert dec_tokenizer is not None and enc_tokenizer is not None
 
 		sample_max_len = self.hparams._config.get("sample_max_len", True)
-		use_cache = self.hparams._config.get("use_cache", True)
-		# num_beam = self.hparams._config.get("n_beam", 1)
+		use_cache = self.hparams._config.get("use_cache", None)
 		sample_n = self.hparams._config.get("sample_n", 5)
+		# num_beam = self.hparams._config.get("n_beam", 1)
 		# early_stop = self.hparams._config.get("early_stop", True)
 		cider_baseline = self.hparams._config.get("cider_baseline", "greedy")
+		clip_baseline = self.hparams._config.get("clip_baseline", "")
 		cider_lambda = self.hparams._config.get("cider_lambda", True)
 		clip_lambda = self.hparams._config.get("clip_lambda", True)
 
@@ -168,10 +177,11 @@ class RLCaptionPlModule(pl.LightningModule):
 			"enc_tokenizer": enc_tokenizer,
 			"sample_max_len": sample_max_len,
 			"use_cache": use_cache,
-			# "num_beam": num_beam,
 			"sample_n": sample_n,
+			# "num_beam": num_beam,
 			# "early_stop": early_stop,
 			"cider_baseline": cider_baseline,
+			"clip_baseline": clip_baseline,
 			"cider_lambda": cider_lambda,
 			"clip_lambda": clip_lambda,
 		}
