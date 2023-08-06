@@ -178,11 +178,14 @@ class RLT5CaptionModel(nn.Module):
 				"caption": batch["caption"], # this will be both CIDEr&CLIP(ground truth)
 				"caption_id": batch["caption_id"],
 				"caption_mask": batch["caption_mask"],
-				f"{kwargs['cider_baseline']}": batch[f"{kwargs['cider_baseline']}"], # this will be CIDEr((non-greedy)baseline)
-				f"{kwargs['cider_baseline']}_id": batch[f"{kwargs['cider_baseline']}_id"],
-				f"{kwargs['cider_baseline']}_mask": batch[f"{kwargs['cider_baseline']}_mask"],
 				"image_cls": X_encode["image"]["cls_embedding"],
 			}
+			if kwargs["cider_baseline"] != "greedy":
+				outputs.update({
+					f"{kwargs['cider_baseline']}": batch[f"{kwargs['cider_baseline']}"], # this will be CIDEr((non-greedy)baseline)
+					f"{kwargs['cider_baseline']}_id": batch[f"{kwargs['cider_baseline']}_id"],
+					f"{kwargs['cider_baseline']}_mask": batch[f"{kwargs['cider_baseline']}_mask"],
+				})
 			if kwargs['clip_baseline'] != "":
 				assert kwargs['clip_baseline'] in ["description", "caption"]
 				outputs.update({

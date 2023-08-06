@@ -349,7 +349,7 @@ def main(_config):
 		precision=_config["precision"],
 		accelerator=_config["accelerator"],
 		benchmark=True,
-		# deterministic=True,
+		# deterministic=True,  # TODO: to fix this issue
 		max_epochs=_config["max_epoch"],
 		enable_model_summary=False,
 		callbacks=callbacks,
