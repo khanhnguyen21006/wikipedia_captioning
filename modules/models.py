@@ -156,7 +156,7 @@ class RLT5CaptionModel(nn.Module):
 		)
 		vilt_init_weights(self.lin[0])
 
-	def forward(self, batch, sc_flag, **kwargs):
+	def forward(self, batch, sc_flag, db_flag, **kwargs):
 		X_encode = self._encode(batch)
 		if sc_flag:
 			if kwargs["cider_baseline"] == "greedy":
@@ -227,16 +227,11 @@ class RLT5CaptionModel(nn.Module):
 		return X_encode
 
 	def _sample(self, greedy=False, **kwargs):
-		# 1. Set generation parameters (bos, pad, eos, n_beam)
-		# 2. Set output from encoder
-		# 3. Define other model kwargs
-		# 4. Define decoder input
-		# 5. run search
 		input_ids = kwargs.pop("decoder_input_ids")
 		_bs = input_ids.size(0)
 
 		unfinished = input_ids.new(_bs).fill_(1)
-		# cur_len = input_ids.shape[-1]
+		cur_len = input_ids.shape[-1]
 		max_length = kwargs["sample_max_len"]
 
 		dec_tokenizer = kwargs["dec_tokenizer"].tokenizer
@@ -254,9 +249,9 @@ class RLT5CaptionModel(nn.Module):
 			)
 
 			next_token_logits = outputs.logits[:, -1, :]
+			next_token_logits = next_token_logits - torch.max(next_token_logits, dim=-1).values.unsqueeze(1)
 			next_logits += (next_token_logits,)
 
-			# missing a processing part (from raw logis to distribution) next_tokens_scores = logits_processor(input_ids, next_token_logits)
 			if not greedy:
 				probs = F.softmax(next_token_logits, dim=-1)
 				next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
@@ -272,7 +267,7 @@ class RLT5CaptionModel(nn.Module):
 
 			if "past_key_values" in outputs:
 				kwargs["past_key_values"] = outputs.past_key_values
-			# cur_len = cur_len + 1
+			cur_len = cur_len + 1
 
 			if eos_token_id is not None:
 				unfinished = unfinished.mul((next_tokens != eos_token_id).long())

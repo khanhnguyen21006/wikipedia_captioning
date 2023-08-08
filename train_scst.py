@@ -41,6 +41,8 @@ class RLCaptionPlModule(pl.LightningModule):
 
 		self.register_loss_params()
 
+		self.db_flag = False
+
 		# ===================== Inference ====================== #
 		if _config['load_path'] != '' and _config['test']:
 			print('Loading pretrained weights for testing...')
@@ -51,8 +53,8 @@ class RLCaptionPlModule(pl.LightningModule):
 	def forward(self, batch):
 		ret = dict()
 
-		kwargs = self.prepare_forward()
-		out, X_encode = self.model(batch, self.sc_flag, **kwargs)
+		kwargs = self.prepare_model_forward()
+		out, X_encode = self.model(batch, self.sc_flag, self.db_flag, **kwargs)
 
 		# TODO: 2.implementing traing losses
 		if 'lm' in self.losses and not self.sc_flag:
@@ -118,14 +120,14 @@ class RLCaptionPlModule(pl.LightningModule):
 		if "cider" in self.losses and self.sc_flag:
 			cider_loss = getattr(self, f"{phase}_cider_loss")(output["cider_loss"])
 			cider_reward = getattr(self, f"{phase}_cider_reward")(output["cider_reward"])
-			self.log(f"cider/{phase}/cider_loss", cider_loss, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"cider/{phase}/cider_reward", cider_reward, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"cider/{phase}/cider_loss", cider_loss, batch_size=self.trainer.datamodule.scst_batchsize)
+			self.log(f"cider/{phase}/cider_reward", cider_reward, batch_size=self.trainer.datamodule.scst_batchsize)
 
 		if "clips" in self.losses and self.sc_flag:
 			clips_loss = getattr(self, f"{phase}_clips_loss")(output["clips_loss"])
 			clips_reward = getattr(self, f"{phase}_clips_reward")(output["clips_reward"])
-			self.log(f"clips/{phase}/clips_loss", clips_loss, batch_size=self.hparams._config["per_gpu_batchsize"])
-			self.log(f"clips/{phase}/clips_reward", clips_reward, batch_size=self.hparams._config["per_gpu_batchsize"])
+			self.log(f"clips/{phase}/clips_loss", clips_loss, batch_size=self.trainer.datamodule.scst_batchsize)
+			self.log(f"clips/{phase}/clips_reward", clips_reward, batch_size=self.trainer.datamodule.scst_batchsize)
 
 	def epoch_wrapup(self):
 		phase = "train" if self.training else "val"
@@ -136,7 +138,7 @@ class RLCaptionPlModule(pl.LightningModule):
 				continue
 
 			value = 0
-			if (loss == "lm" and not self.sc_flag) or (loss != "lm" and self.sc_flag):
+			if (loss == "lm" and not self.sc_flag) or not self.training:
 				loss_val = getattr(self, f"{phase}_{loss}_loss").compute()
 				self.log(
 					f"{loss}/{phase}/loss_epoch",
@@ -144,7 +146,16 @@ class RLCaptionPlModule(pl.LightningModule):
 				)
 				getattr(self, f"{phase}_{loss}_loss").reset()
 				value = loss_val
-
+			elif (loss == "cider" or loss == "clips") and self.sc_flag:
+				reward = getattr(pl_module, f"{phase}_{loss}_reward").compute()
+				pl_module.log(
+					f"{loss}/{phase}/reward_epoch",
+					reward,
+				)
+				getattr(pl_module, f"{phase}_{loss}_reward").reset()
+				value = reward
+			else:
+				raise ValueError("Invalid loss value.")
 			the_metric += value
 
 		self.log(f"{phase}/the_metric", the_metric)
@@ -157,7 +168,7 @@ class RLCaptionPlModule(pl.LightningModule):
 				with open(os.path.join(log_dir, 'config.json'), 'w') as f:
 					json.dump(self.hparams._config, f, indent=4)
 
-	def prepare_forward(self):
+	def prepare_model_forward(self):
 		dec_tokenizer = self.trainer.datamodule.collate_hparams["dec_tokenizer"]
 		enc_tokenizer = self.trainer.datamodule.collate_hparams["enc_tokenizer"]
 		assert dec_tokenizer is not None and enc_tokenizer is not None
@@ -219,8 +230,8 @@ class RLCaptionPlModule(pl.LightningModule):
 		cider_reward = cider_reward.reshape(-1)
 		sample_logprobs = sample_logprobs.gather(2, sample_seq[:, 1:].unsqueeze(2)).squeeze(2)
 		sample_logprobs = sample_logprobs.reshape(-1)
-		mask = (sample_seq[:, 1:] > dec_tokenizer.pad_token_id).to(sample_logprobs)
-		mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).reshape(-1)
+		mask = (sample_seq[:, 1:] > dec_tokenizer.pad_token_id).reshape(-1).to(sample_logprobs)
+		# mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).reshape(-1)
 
 		loss = -sample_logprobs * cider_reward * mask
 		# loss = loss.view(_ss, ml).sum(1) / mask.view(_ss, ml).sum(1)
@@ -256,8 +267,8 @@ class RLCaptionPlModule(pl.LightningModule):
 
 		sample_logprobs = sample_logprobs.gather(2, sample_seq[:, 1:].unsqueeze(2)).squeeze(2)
 		sample_logprobs = sample_logprobs.reshape(-1)
-		mask = (sample_seq[:, 1:] > dec_tokenizer.tokenizer.pad_token_id).to(sample_logprobs)
-		mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).reshape(-1)
+		mask = (sample_seq[:, 1:] > dec_tokenizer.tokenizer.pad_token_id).reshape(-1).to(sample_logprobs)
+		# mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1)
 
 		loss = -sample_logprobs * clip_reward * mask
 		# loss = loss.view(_ss, ml).sum(1) / mask.view(_ss, ml).sum(1)
@@ -273,7 +284,7 @@ class OnEpochStartCallback(pl.Callback):
 		if _config["self_critical_after"] != -1 and epoch >= _config["self_critical_after"]:
 			pl_module.sc_flag = True
 			trainer.callbacks[1].best_model_score = None
-			trainer.val_check_interval = 0.05
+			trainer.callbacks[1].mode = "max"
 			init_scorer()
 
 			torch.cuda.empty_cache()
@@ -340,7 +351,10 @@ def main(_config):
 	)
 
 	grad_steps = _config["batch_size"] // (
-			_config["per_gpu_batchsize"] * num_gpus * _config["num_nodes"]
+		_config["per_gpu_batchsize"] * num_gpus * _config["num_nodes"]
+	)
+	sc_grad_steps = _config["batch_size"] // (
+		_config["scst_batchsize"] * num_gpus * _config["num_nodes"]
 	)
 
 	trainer = pl.Trainer(
@@ -355,7 +369,7 @@ def main(_config):
 		callbacks=callbacks,
 		logger=logger,
 		replace_sampler_ddp=False,
-		accumulate_grad_batches=grad_steps,
+		accumulate_grad_batches={0: grad_steps, _config["self_critical_after"]: sc_grad_steps},
 		log_every_n_steps=10,
 		flush_logs_every_n_steps=10,
 		weights_summary="top",
