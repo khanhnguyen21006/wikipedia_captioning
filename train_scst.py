@@ -18,7 +18,10 @@ import utils
 from modules import build_model
 from datamodules import DataModule
 
-from cider.pyciderevalcap.ciderD.ciderD import CiderD
+def init_scorer():
+	from cider.pyciderevalcap.ciderD.ciderD import CiderD
+	global CiderD_scorer
+	CiderD_scorer = CiderD(df="wit-train-words")
 
 class RLCaptionPlModule(pl.LightningModule):
 	def __init__(self, _config):
@@ -138,22 +141,24 @@ class RLCaptionPlModule(pl.LightningModule):
 				continue
 
 			value = 0
-			if (loss == "lm" and not self.sc_flag) or not self.training:
-				loss_val = getattr(self, f"{phase}_{loss}_loss").compute()
-				self.log(
-					f"{loss}/{phase}/loss_epoch",
-					loss_val,
-				)
-				getattr(self, f"{phase}_{loss}_loss").reset()
-				value = loss_val
-			elif (loss == "cider" or loss == "clips") and self.sc_flag:
-				reward = getattr(pl_module, f"{phase}_{loss}_reward").compute()
-				pl_module.log(
-					f"{loss}/{phase}/reward_epoch",
-					reward,
-				)
-				getattr(pl_module, f"{phase}_{loss}_reward").reset()
-				value = reward
+			if loss == "lm":
+				if not self.sc_flag or self.trainer.sanity_checking:
+					loss_val = getattr(self, f"{phase}_{loss}_loss").compute()
+					self.log(
+						f"{loss}/{phase}/loss_epoch",
+						loss_val,
+					)
+					getattr(self, f"{phase}_{loss}_loss").reset()
+					value = loss_val
+			elif loss == "cider" or loss == "clips":
+				if self.sc_flag:
+					reward = getattr(pl_module, f"{phase}_{loss}_reward").compute()
+					pl_module.log(
+						f"{loss}/{phase}/reward_epoch",
+						reward,
+					)
+					getattr(pl_module, f"{phase}_{loss}_reward").reset()
+					value = reward
 			else:
 				raise ValueError("Invalid loss value.")
 			the_metric += value
@@ -291,10 +296,6 @@ class OnEpochStartCallback(pl.Callback):
 			ll_names = ', '.join([_ll for _ll in pl_module.losses if _ll != 'lm']).strip()
 			print(f"====== STARTED Self Critical Sequence Training with objectives: {ll_names}  ======")
 			import time; time.sleep(60)  # WORKAROUND: due to gpu memory is not freed after epoch completion
-
-def init_scorer():
-	global CiderD_scorer
-	CiderD_scorer = CiderD(df="wit-train-words")
 
 class RLDataModule(DataModule):
 	def __init__(self, _config, dist=False):
