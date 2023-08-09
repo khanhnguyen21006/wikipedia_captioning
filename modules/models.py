@@ -217,7 +217,7 @@ class RLT5CaptionModel(nn.Module):
 		# 	"cls_embedding": cls_description,
 		# 	"mask": mask_description,
 		# }})
-				
+
 		for k in ["section", "caption", "prompt"]:
 			if f"{k}_id" in batch:
 				X_encode.update({k: {
@@ -284,7 +284,7 @@ class RLT5CaptionModel(nn.Module):
 
 	def _prepare_sample_inputs(self, sample_n=1, past=None, **kwargs):
 		text_id, mask_text, X_image, mask_image = *(
-			repeat_tensor_batch_dim(sample_n, x) 
+			repeat_tensor_batch_dim(sample_n, x)
 			for x in [kwargs["section"]["section_id"], kwargs["section"]["section_mask"],\
 						kwargs["image"]["embedding"], kwargs["image"]["mask"]]
 		),
@@ -293,10 +293,10 @@ class RLT5CaptionModel(nn.Module):
 		X_input = torch.cat([X_image, X_section], dim=1)
 		mask_input = torch.cat([mask_image, mask_text], dim=1)
 		encoder_outputs = self.text_decoder.t5.encoder(
-								inputs_embeds=X_input, 
+								inputs_embeds=X_input,
 								attention_mask=mask_input,
-								output_attentions=False, 
-								output_hidden_states=False, 
+								output_attentions=False,
+								output_hidden_states=False,
 								return_dict=True)
 
 		_bs = X_section.size(0)
@@ -305,8 +305,8 @@ class RLT5CaptionModel(nn.Module):
 			"decoder_input_ids": input_ids,
 			"attention_mask": mask_input,
 			"encoder_outputs": encoder_outputs,
-			'head_mask': None, 
-			'decoder_head_mask': None, 
+			'head_mask': None,
+			'decoder_head_mask': None,
 			'cross_attn_head_mask': None,
 			"past_key_values": past,
 		}
@@ -321,8 +321,8 @@ class RLT5CaptionModel(nn.Module):
 			"attention_mask": kwargs["attention_mask"],
 			"use_cache": kwargs["use_cache"],
 			"encoder_outputs": kwargs["encoder_outputs"],
-			"head_mask": kwargs["head_mask"], 
-			"decoder_head_mask": kwargs["decoder_head_mask"], 
+			"head_mask": kwargs["head_mask"],
+			"decoder_head_mask": kwargs["decoder_head_mask"],
 			"cross_attn_head_mask": kwargs["cross_attn_head_mask"],
 			"past_key_values": kwargs["past_key_values"],
 		}

@@ -152,18 +152,24 @@ class RLCaptionPlModule(pl.LightningModule):
 					value = loss_val
 			elif loss == "cider" or loss == "clips":
 				if self.sc_flag:
-					reward = getattr(pl_module, f"{phase}_{loss}_reward").compute()
-					pl_module.log(
+					reward = getattr(self, f"{phase}_{loss}_reward").compute()
+					self.log(
 						f"{loss}/{phase}/reward_epoch",
 						reward,
 					)
-					getattr(pl_module, f"{phase}_{loss}_reward").reset()
+					getattr(self, f"{phase}_{loss}_reward").reset()
 					value = reward
 			else:
 				raise ValueError("Invalid loss value.")
 			the_metric += value
 
-		self.log(f"{phase}/the_metric", the_metric)
+		if self.training:
+			if not self.sc_flag:
+				self.log(f"{phase}/xe_metric", the_metric)
+			else:
+				self.log(f"{phase}/scst_metric", the_metric)
+		else:
+			self.log(f"{phase}/the_metric", the_metric)
 
 		if self.trainer.global_rank == 0:
 			import json
@@ -280,22 +286,35 @@ class RLCaptionPlModule(pl.LightningModule):
 		loss = torch.sum(loss) / torch.sum(mask)
 		return loss, clip_reward.mean().item()
 
-class OnEpochStartCallback(pl.Callback):
-	def on_train_epoch_start(self, trainer, pl_module):
-		_config = pl_module.hparams._config
-		epoch = trainer.current_epoch
+class SCSTModelCheckpoint(pl.callbacks.ModelCheckpoint):
+	def _re_init_checkpoint_callback(self):
+		self.current_score = None
+		self.best_k_models = {}
+		self.kth_best_model_path = ""
+		self.best_model_score = None
+		self.best_model_path = ""
+		self.last_model_path = ""
+		self.filename = "SCST-{epoch}-{step}"
+		self._ModelCheckpoint__init_monitor_mode("max")
+		# self._ModelCheckpoint__init_triggers(every_n_train_steps, every_n_epochs, train_time_interval)
+		self._ModelCheckpoint__validate_init_configuration()
 
-		# If start self critical training
-		if _config["self_critical_after"] != -1 and epoch >= _config["self_critical_after"]:
+	def on_train_epoch_start(self, trainer, pl_module):
+		scst_after = pl_module.hparams._config["self_critical_after"]
+		epoch = trainer.current_epoch
+		loss_str = ', '.join([_ll for _ll in pl_module.losses if _ll != 'lm']).strip()
+
+		if not pl_module.sc_flag and scst_after != -1 and epoch >= scst_after:
 			pl_module.sc_flag = True
-			trainer.callbacks[1].best_model_score = None
-			trainer.callbacks[1].mode = "max"
+			self._re_init_checkpoint_callback()
+
 			init_scorer()
 
+			# WORKAROUND: due to gpu memory is not freed after epoch completion
 			torch.cuda.empty_cache()
-			ll_names = ', '.join([_ll for _ll in pl_module.losses if _ll != 'lm']).strip()
-			print(f"====== STARTED Self Critical Sequence Training with objectives: {ll_names}  ======")
-			import time; time.sleep(60)  # WORKAROUND: due to gpu memory is not freed after epoch completion
+			import time; time.sleep(60)
+
+			print(f"====== STARTED Self Critical Sequence Training with objectives: {loss_str}  ======")
 
 class RLDataModule(DataModule):
 	def __init__(self, _config, dist=False):
@@ -304,11 +323,11 @@ class RLDataModule(DataModule):
 		self.scst_batchsize = _config["scst_batchsize"]
 
 	def train_dataloader(self) -> TRAIN_DATALOADERS:
+		_bs = self.batch_size
 		if self.epoch_to_start_scst != -1 and self.trainer.current_epoch >= self.epoch_to_start_scst:
 			_bs = self.scst_batchsize
-		else:
-			_bs = self.batch_size
-		loader = DataLoader(
+
+		return DataLoader(
 			self.train_dataset,
 			batch_size=_bs,
 			sampler=self.train_sampler,
@@ -316,7 +335,6 @@ class RLDataModule(DataModule):
 			pin_memory=True,
 			collate_fn=self.collate_fn,
 		)
-		return loader
 
 @ex.automain
 def main(_config):
@@ -334,7 +352,8 @@ def main(_config):
 		name=f'{exp_name}_seed{_config["seed"]}',
 	)
 
-	checkpoint_callback = pl.callbacks.ModelCheckpoint(
+	checkpoint_callback = SCSTModelCheckpoint(
+		filename="XE-{epoch}-{step}",
 		save_top_k=_config["save_top_k"],
 		verbose=True,
 		monitor="val/the_metric",
@@ -343,7 +362,7 @@ def main(_config):
 	)
 	lr_callback = pl.callbacks.LearningRateMonitor(logging_interval="step")
 	summary_callback = pl.callbacks.ModelSummary(max_depth=2)
-	callbacks = [OnEpochStartCallback(), checkpoint_callback, lr_callback, summary_callback]
+	callbacks = [checkpoint_callback, lr_callback, summary_callback]
 
 	num_gpus = (
 		_config["num_gpus"]
