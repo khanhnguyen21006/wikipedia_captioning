@@ -28,7 +28,6 @@ class RLCaptionPlModule(pl.LightningModule):
 		super(RLCaptionPlModule, self).__init__()
 		self.save_hyperparameters()
 
-		# TODO: 1. init model (write nn.Module with: architecture, forward, sampling, generate)
 		self.model = build_model(_config)
 
 		# ========= Finetune after training if needed =========== #
@@ -59,7 +58,6 @@ class RLCaptionPlModule(pl.LightningModule):
 		kwargs = self.prepare_model_forward()
 		out, X_encode = self.model(batch, self.sc_flag, self.db_flag, **kwargs)
 
-		# TODO: 2.implementing traing losses
 		if 'lm' in self.losses and not self.sc_flag:
 			ret.update({"lm_loss": out["loss"]})
 
@@ -114,7 +112,6 @@ class RLCaptionPlModule(pl.LightningModule):
 	def log_metrics(self, output):
 		phase = "train" if self.training else "val"
 
-		# TODO: 3. Logging
 		for _loss in ["lm"]:
 			if _loss in self.losses and not self.sc_flag:
 				_loss_val = getattr(self, f"{phase}_{_loss}_loss")(output[f"{_loss}_loss"])
@@ -179,6 +176,18 @@ class RLCaptionPlModule(pl.LightningModule):
 				with open(os.path.join(log_dir, 'config.json'), 'w') as f:
 					json.dump(self.hparams._config, f, indent=4)
 
+	# def on_after_backward(self):
+	# 	for n, p in self.model.named_parameters():
+	# 		if p.requires_grad:
+	# 			if torch.any(torch.isnan(p.grad)) or torch.any(torch.isinf(p.grad)):
+	# 				import pudb; pu.db
+
+	# def on_train_batch_end(self):
+	# 	for n, p in self.model.named_parameters():
+	# 		if p.requires_grad:
+	# 			if torch.any(torch.isnan(p.grad)) or torch.any(torch.isinf(p.grad)):
+	# 				import pudb; pu.db
+
 	def prepare_model_forward(self):
 		dec_tokenizer = self.trainer.datamodule.collate_hparams["dec_tokenizer"]
 		enc_tokenizer = self.trainer.datamodule.collate_hparams["enc_tokenizer"]
@@ -242,10 +251,8 @@ class RLCaptionPlModule(pl.LightningModule):
 		sample_logprobs = sample_logprobs.gather(2, sample_seq[:, 1:].unsqueeze(2)).squeeze(2)
 		sample_logprobs = sample_logprobs.reshape(-1)
 		mask = (sample_seq[:, 1:] > dec_tokenizer.pad_token_id).reshape(-1).to(sample_logprobs)
-		# mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).reshape(-1)
 
 		loss = -sample_logprobs * cider_reward * mask
-		# loss = loss.view(_ss, ml).sum(1) / mask.view(_ss, ml).sum(1)
 		loss = torch.sum(loss) / torch.sum(mask)
 		return loss, cider_reward.mean().item()
 
@@ -279,10 +286,8 @@ class RLCaptionPlModule(pl.LightningModule):
 		sample_logprobs = sample_logprobs.gather(2, sample_seq[:, 1:].unsqueeze(2)).squeeze(2)
 		sample_logprobs = sample_logprobs.reshape(-1)
 		mask = (sample_seq[:, 1:] > dec_tokenizer.tokenizer.pad_token_id).reshape(-1).to(sample_logprobs)
-		# mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1)
 
 		loss = -sample_logprobs * clip_reward * mask
-		# loss = loss.view(_ss, ml).sum(1) / mask.view(_ss, ml).sum(1)
 		loss = torch.sum(loss) / torch.sum(mask)
 		return loss, clip_reward.mean().item()
 
@@ -296,7 +301,6 @@ class SCSTModelCheckpoint(pl.callbacks.ModelCheckpoint):
 		self.last_model_path = ""
 		self.filename = "SCST-{epoch}-{step}"
 		self._ModelCheckpoint__init_monitor_mode("max")
-		# self._ModelCheckpoint__init_triggers(every_n_train_steps, every_n_epochs, train_time_interval)
 		self._ModelCheckpoint__validate_init_configuration()
 
 	def on_train_epoch_start(self, trainer, pl_module):
@@ -315,6 +319,11 @@ class SCSTModelCheckpoint(pl.callbacks.ModelCheckpoint):
 			import time; time.sleep(60)
 
 			print(f"====== STARTED Self Critical Sequence Training with objectives: {loss_str}  ======")
+
+	def on_exception(self, trainer, pl_module, exception):
+		# Save model when exception caught
+		self.filename = self.filename + "-interrupted"
+		self.save_checkpoint(trainer)
 
 class RLDataModule(DataModule):
 	def __init__(self, _config, dist=False):
@@ -352,7 +361,7 @@ def main(_config):
 		name=f'{exp_name}_seed{_config["seed"]}',
 	)
 
-	checkpoint_callback = SCSTModelCheckpoint(
+	ckpt_callback = SCSTModelCheckpoint(
 		filename="XE-{epoch}-{step}",
 		save_top_k=_config["save_top_k"],
 		verbose=True,
@@ -362,7 +371,7 @@ def main(_config):
 	)
 	lr_callback = pl.callbacks.LearningRateMonitor(logging_interval="step")
 	summary_callback = pl.callbacks.ModelSummary(max_depth=2)
-	callbacks = [checkpoint_callback, lr_callback, summary_callback]
+	callbacks = [ckpt_callback, lr_callback, summary_callback]
 
 	num_gpus = (
 		_config["num_gpus"]
@@ -397,6 +406,7 @@ def main(_config):
 		val_check_interval=_config["val_check_interval"],
 		num_sanity_val_steps=_config["num_sanity_val_steps"],
 		gradient_clip_val=_config["gradient_clip_val"],
+		gradient_clip_algorithm=_config["gradient_clip_algo"],
 		reload_dataloaders_every_n_epochs=1,
 		# detect_anomaly=True,
 		# track_grad_norm=2

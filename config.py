@@ -91,7 +91,9 @@ def config():
 	end_lr = 0
 	warmup_steps = 2500
 	decay_power = 1
-	gradient_clip_val = 0
+	gradient_clip_val = 0.
+	gradient_clip_algo = None
+
 	run_caption = False
 	run_retrieve = False
 	retrieval_testset = ''
@@ -180,15 +182,21 @@ def prelim():
 
 
 @ex.named_config
-def eval():
-	expt_name = "eval"
+def caption_eval():
+	expt_name = "caption_eval"
 	# load_path = ''
 	test = True
 	run_caption = True
 
-	# run_retrieve = True
-	# retrieval_testset = 'test_5k_RET' # 'test_5k_multi_RET', 'test_5k_RET'
-	# eval_method =  'clip' # 'match_sentence_max_2', 'clip'
+
+@ex.named_config
+def retrieve_eval():
+	expt_name = "retrieve_eval"
+	# load_path = ''
+	test = True
+	run_retrieve = True
+	retrieval_testset = 'test_5k_RET' # 'test_5k_multi_RET', 'test_5k_RET'
+	eval_method =  'clip' # 'match_sentence_max_2', 'clip'
 	num_gpus = 1
 
 
@@ -470,6 +478,8 @@ def scst_t5_clip_caption_cider():
 	lr_scheduler = 'with_warmup'
 	max_epoch = 10
 	warmup_steps = 500
+	gradient_clip_val = 1.0
+	gradient_clip_algo = 'value'
 
 	transform = 'clip_vit_h5py'
 	text_max_len = 512

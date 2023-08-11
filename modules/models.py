@@ -146,6 +146,8 @@ class RLT5CaptionModel(nn.Module):
 		else:
 			self.image_encoder, _ = get_image_encoder(_config)  # CLIP IE
 			self.text_encoder, _ = get_text_encoder(_config)  # CLIP TE
+			set_finetune(self.image_encoder, self._config["image_encoder_finetune"])
+			set_finetune(self.text_encoder, self._config["text_encoder_finetune"])
 		self.text_decoder, d_emb = get_text_decoder(_config)  # T5
 
 		self.lin = nn.Sequential(

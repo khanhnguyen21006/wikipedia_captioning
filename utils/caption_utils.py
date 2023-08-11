@@ -5,13 +5,10 @@ from pycocoevalcap.cider.cider_scorer import CiderScorer
 from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.rouge.rouge import Rouge
 
-import re
-import os
-import json
-import string
-import types
-import hashlib
+import re, os, json, glob
+import string, types, hashlib
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from collections import defaultdict
 
@@ -22,7 +19,6 @@ from nltk.tokenize import word_tokenize
 nlp = spacy.load("en_core_web_sm")
 
 def caption_wrapup(outs, _config):
-	import pudb; pu.db
 	rank = torch.distributed.get_rank()
 
 	path = os.path.join(_config['result_dir'], 'inference', _config['expt_name'], 'caption')
@@ -47,14 +43,14 @@ def caption_wrapup(outs, _config):
 				jsonl.extend([jl for jl in list(f)])
 
 		# For WIT, compute captioning metrics with pycoco scripts, while P&R similar to Tell
-		if _config['dataset'] == 'wit':
+		if _config['dataset'] in ['wit', 'rlwit']:
 			create_pycoco_files(jsonl, path)
 			precision, recall = precison_recall_tell(jsonl)
 			metrics = {
 				'Entity all - precision': precision,
 				'Entity all - recall': recall
 			}
-		elif _config['dataset'] == 'goodnews' or _config['dataset'] == 'nytimes800k':
+		elif _config['dataset'] == ['goodnews', 'nytimes800k']:
 			metrics = all_metrics_tell(jsonl, _config['data_folder'])
 		else:
 			raise ValueError(f"Invalid {_config['dataset']} dataset.")
@@ -137,10 +133,10 @@ def jaccard(str1, str2):
 def precison_recall_tell(jsonl):
 	count = 0
 	ent_counter = defaultdict(int)
-	
+
 	for jline in tqdm(jsonl):
 		jline = json.loads(jline)
-		try:	
+		try:
 			c_doc = spacize(jline['caption'])
 			g_doc = nlp(jline['generated'])
 			caption_ents = get_entity(c_doc)
@@ -260,20 +256,24 @@ def all_metrics_tell(jsonl, data_folder):
 	return metrics
 
 def create_pycoco_files(jsonl, path, split=False):
+	def convert_format(d):
+		d['references'][u'images'] = [dict({u'id': k}, **v) for k, v in d['references'][u'images'].items()]
+		d['references'][u'annotations'] = [dict({u'id': k}, **v) for k, v in d['references'][u'annotations'].items()]
+		d['hypotheses'] = [dict({u'image_id': k}, **v) for k, v in d['hypotheses'].items()]
+		return d
+
 	ret = {
-		'references': {u'info': {}, u'images': [], u'licenses': {}, u'type': u'captions', u'annotations': []},
-		'hypotheses': list(),
-		'inference': list(),
+		'references': {u'info': {}, u'images': dict(), u'licenses': {}, u'type': u'captions', u'annotations': dict()},
+		'hypotheses': dict(),
+		'inference': dict(),
 	}
 	easy = {
-		'references': {u'info': {}, u'images': [], u'licenses': {}, u'type': u'captions', u'annotations': []},
-		'hypotheses': list(),
-		'inference': list(),
+		'references': {u'info': {}, u'images': dict(), u'licenses': {}, u'type': u'captions', u'annotations': dict()},
+		'hypotheses': dict(),
 	}
 	hard = {
-		'references': {u'info': {}, u'images': [], u'licenses': {}, u'type': u'captions', u'annotations': []},
-		'hypotheses': list(),
-		'inference': list(),
+		'references': {u'info': {}, u'images': dict(), u'licenses': {}, u'type': u'captions', u'annotations': dict()},
+		'hypotheses': dict(),
 	}
 
 	for idx, jline in tqdm(enumerate(jsonl)):
@@ -284,19 +284,18 @@ def create_pycoco_files(jsonl, path, split=False):
 		generated = jline['generated']
 		context = jline['section']
 
-		ret['references'][u'images'].append({u'license': 3, u'file_name': str(idx), u'id': im_id})
-		ret['references'][u'annotations'].append({u'image_id': im_id, u'id': im_id, u'caption': reference.strip()})
-		ret['hypotheses'].append({u'caption': generated.strip(), u'image_id': im_id})
-			
+		ret['references'][u'images'][im_id] = {u'license': 3, u'file_name': str(idx)}
+		ret['references'][u'annotations'][im_id] = {u'image_id': im_id, u'caption': reference.strip()}
+		ret['hypotheses'][im_id] = {u'caption': generated.strip()}
+
 		r_tokens = [word for word in word_tokenize(reference) if not re.fullmatch('[' + string.punctuation + ']+', word)]
 		g_tokens = [word for word in word_tokenize(generated) if not re.fullmatch('[' + string.punctuation + ']+', word)]
 		c_tokens = [word for word in word_tokenize(context) if not re.fullmatch('[' + string.punctuation + ']+', word)]
-		
+
 		rc_overlap = jaccard(r_tokens, c_tokens)
 		gc_overlap = jaccard(g_tokens, c_tokens)
 
-		ret['inference'].append({
-			'image_id': im_id,
+		ret['inference'][im_id] = {
 			'context': context,
 			'reference': reference,
 			'generated': generated,
@@ -305,34 +304,37 @@ def create_pycoco_files(jsonl, path, split=False):
 			'rc_jaccard': rc_overlap,
 			'gc_jaccard': gc_overlap,
 			'image_url': image_url,
-		})
+		}
 
 		if rc_overlap >= 0.5:
-			easy['references'][u'images'].append({u'license': 3, u'file_name': str(idx), u'id': im_id})
-			easy['references'][u'annotations'].append({u'image_id': im_id, u'id': im_id, u'caption': reference.strip()})
-			easy['hypotheses'].append({u'caption': generated.strip(), u'image_id': im_id})
+			easy['references'][u'images'][im_id] = {u'license': 3, u'file_name': str(idx)}
+			easy['references'][u'annotations'][im_id] = {u'image_id': im_id, u'caption': reference.strip()}
+			easy['hypotheses'][im_id] = {u'caption': generated.strip()}  # u'image_id'
 		else:
-			hard['references'][u'images'].append({u'license': 3, u'file_name': str(idx), u'id': im_id})
-			hard['references'][u'annotations'].append({u'image_id': im_id, u'id': im_id, u'caption': reference.strip()})
-			hard['hypotheses'].append({u'caption': generated.strip(), u'image_id': im_id})
+			hard['references'][u'images'][im_id] = {u'license': 3, u'file_name': str(idx)}
+			hard['references'][u'annotations'][im_id] = {u'image_id': im_id, u'caption': reference.strip()}
+			hard['hypotheses'][im_id] = {u'caption': generated.strip()}
 
+	convert_format(ret)
 	assert len(ret['references'][u'annotations']) == len(ret['hypotheses'])
 	with open(os.path.join(path, 'references.json'), 'w') as f:
 		json.dump(ret['references'], f)
 	with open(os.path.join(path, 'generated.json'), 'w') as f:
 		json.dump(ret['hypotheses'], f)
 
-	df = pd.DataFrame(ret['inference'])
+	df = pd.DataFrame([dict({'image_id': k}, **v) for k,v in ret['inference'].items()])
 	df.to_csv(os.path.join(path, 'inference.csv'), index=False)
 	print('Saving files to : ', path)
 
 	if split:
+		convert_format(easy)
 		assert len(easy['references'][u'annotations']) == len(easy['hypotheses'])
 		with open(os.path.join(path, 'easy_references.json'), 'w') as f:
 			json.dump(easy['references'], f)
 		with open(os.path.join(path, 'easy_generated.json'), 'w') as f:
 			json.dump(easy['hypotheses'], f)
 
+		convert_format(hard)
 		assert len(hard['references'][u'annotations']) == len(hard['hypotheses'])
 		with open(os.path.join(path, 'hard_references.json'), 'w') as f:
 			json.dump(hard['references'], f)
