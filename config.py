@@ -72,6 +72,7 @@ def config():
 
 	self_critical_after = -1
 	scst_batchsize = 0
+	scst_on_hard = False
 	sample_max_len = 50  # for RL experiments
 	sample_n = 5
 	# num_beam = 1

@@ -199,7 +199,6 @@ def set_schedule(pl_module):
 		* pl_module.trainer.max_epochs
 		// pl_module.trainer.accumulate_grad_batches
 	)
-
 	print('Config.max_steps (for step-based scheduler): ', max_steps)
 	print('Trainer.max_epochs (for step-based scheduler): ', pl_module.trainer.max_epochs)
 

@@ -4,8 +4,9 @@ from pycocoevalcap.bleu.bleu_scorer import BleuScorer
 from pycocoevalcap.cider.cider_scorer import CiderScorer
 from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.rouge.rouge import Rouge
+from .clipscore import clip, extract_all_images, get_clip_score, get_refonlyclipscore
 
-import re, os, json, glob
+import re, os, json, h5py, glob
 import string, types, hashlib
 import numpy as np
 import pandas as pd
@@ -25,6 +26,8 @@ def caption_wrapup(outs, _config):
 	os.makedirs(path, exist_ok=True)
 
 	curr_rank = os.path.join(path, f'generations_{rank}.jsonl')
+	if os.path.exists(curr_rank):
+		os.remove(curr_rank)
 	with open(curr_rank, 'a+') as f:
 		flatten = list()
 		for out in outs:
@@ -54,6 +57,7 @@ def caption_wrapup(outs, _config):
 			metrics = all_metrics_tell(jsonl, _config['data_folder'])
 		else:
 			raise ValueError(f"Invalid {_config['dataset']} dataset.")
+		metrics.update(clip_score(jsonl, _config['data_folder']))
 		print(metrics)
 
 		with open(os.path.join(path, 'metrics.json'), 'w') as f:
@@ -105,19 +109,19 @@ def _stat(self, hypothesis_str, reference_list):
 
 # https://stackoverflow.com/questions/19790188/expanding-english-language-contractions-in-python
 def decontracted(phrase):
-    # specific
-    phrase = re.sub(r"won\s*[\’\'\"]+\s*t", "will not", phrase)
-    phrase = re.sub(r"can\s*[\’\'\"]+\s*t", "can not", phrase)
-    # general
-    phrase = re.sub(r"n\s*[\’\'\"]+\s*t", " not", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*re", " are", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*s", " is", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*d", " would", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*ll", " will", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*t", " not", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*ve", " have", phrase)
-    phrase = re.sub(r"\s*[\’\'\"]+\s*m", " am", phrase)
-    return phrase
+	# specific
+	phrase = re.sub(r"won\s*[\’\'\"]+\s*t", "will not", phrase)
+	phrase = re.sub(r"can\s*[\’\'\"]+\s*t", "can not", phrase)
+	# general
+	phrase = re.sub(r"n\s*[\’\'\"]+\s*t", " not", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*re", " are", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*s", " is", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*d", " would", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*ll", " will", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*t", " not", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*ve", " have", phrase)
+	phrase = re.sub(r"\s*[\’\'\"]+\s*m", " am", phrase)
+	return phrase
 
 def spacize(text):
 	key = hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -340,6 +344,45 @@ def create_pycoco_files(jsonl, path, split=False):
 			json.dump(hard['references'], f)
 		with open(os.path.join(path, 'hard_generated.json'), 'w') as f:
 			json.dump(hard['hypotheses'], f)
+
+def clip_score(jsonl, ds_path, return_per_instance_scores=False):
+	test_images = h5py.File(os.path.join(ds_path, 'test_IMAGES_wit.hdf5'), 'r')['images']
+	test_image_ids = json.load(open(os.path.join(ds_path, 'test_IMAGEIDS_wit.json'), 'r'))
+
+	images, image_ids, candidates, references = [], [], [], []
+	for jline in tqdm(jsonl):
+		jline = json.loads(jline)
+		images.append(test_images[test_image_ids.index(jline['image_id'])])
+		image_ids.append(jline['image_id'])
+		candidates.append(jline['generated'])
+		references.append([jline['caption']])
+	# import pudb; pu.db
+	# images = np.stack(images)
+
+	device = "cuda" if torch.cuda.is_available() else "cpu"
+	model, transform = clip.load("ViT-B/32", device=device, jit=False)
+	model.eval()
+
+	image_feats = extract_all_images(images, model, device, batch_size=64, num_workers=8)
+
+	# get image-text clipscore
+	_, per_instance_image_text, candidate_feats = get_clip_score(model, image_feats, candidates, device)
+
+	# get text-text clipscore
+	_, per_instance_text_text = get_refonlyclipscore(model, references, candidate_feats, device)
+
+	# F-score
+	refclipscores = 2 * per_instance_image_text * per_instance_text_text / (per_instance_image_text + per_instance_text_text)
+	per_instance_scores = {image_id: {'CLIPScore': float(clipscore), 'RefCLIPScore': float(refclipscore)}
+						for image_id, clipscore, refclipscore in zip(image_ids, per_instance_image_text, refclipscores)}
+	final_scores = {
+		'CLIPScore': np.mean([s['CLIPScore'] for s in per_instance_scores.values()]),
+		'RefCLIPScore': np.mean([s['RefCLIPScore'] for s in per_instance_scores.values()])
+	}
+	if return_per_instance_scores:
+		return final_scores, per_instance_scores
+	else:
+		return final_scores
 
 def test():
 	pass

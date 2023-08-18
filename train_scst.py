@@ -6,7 +6,8 @@ from collections import OrderedDict
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, SequentialSampler
+from torch.utils.data.distributed import DistributedSampler
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.utilities.model_summary import ModelSummary
@@ -245,7 +246,6 @@ class RLCaptionPlModule(pl.LightningModule):
 		cider_reward = kwargs["cider_lambda"] * cider_scores
 		cider_reward = (cider_reward[:_ss].reshape(_bs, seq_per_img) - cider_reward[-_bs:][:, np.newaxis]).reshape(_ss)  # _ss == b*n
 		cider_reward = np.repeat(cider_reward[:, np.newaxis], ml, 1)  # (b*n, ml,)
-
 		cider_reward = torch.from_numpy(cider_reward).to(sample_logprobs)
 		cider_reward = cider_reward.reshape(-1)
 		sample_logprobs = sample_logprobs.gather(2, sample_seq[:, 1:].unsqueeze(2)).squeeze(2)
@@ -322,7 +322,6 @@ class SCSTModelCheckpoint(pl.callbacks.ModelCheckpoint):
 
 	def on_exception(self, trainer, pl_module, exception):
 		# Save model when exception caught
-		self.filename = self.filename + "-interrupted"
 		self.save_checkpoint(trainer)
 
 class RLDataModule(DataModule):
@@ -330,12 +329,24 @@ class RLDataModule(DataModule):
 		super().__init__(_config, dist=dist)
 		self.epoch_to_start_scst = _config["self_critical_after"]
 		self.scst_batchsize = _config["scst_batchsize"]
+		self.scst_on_hard = _config["scst_on_hard"]
 
 	def train_dataloader(self) -> TRAIN_DATALOADERS:
 		_bs = self.batch_size
 		if self.epoch_to_start_scst != -1 and self.trainer.current_epoch >= self.epoch_to_start_scst:
 			_bs = self.scst_batchsize
-
+			if self.scst_on_hard:
+				self.train_dataset = self.dataset_cls(
+					split="train",
+					d_folder=os.path.join(self.data_folder, 'hard'),
+					d_name=self.dataset,
+					transform=self.transforms['train']
+				)
+				self.train_dataset.hparams = self.collate_hparams
+				if self.dist:
+					self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True)
+				else:
+					self.train_sampler = SequentialSampler(self.train_dataset)
 		return DataLoader(
 			self.train_dataset,
 			batch_size=_bs,

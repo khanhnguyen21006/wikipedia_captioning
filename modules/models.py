@@ -251,17 +251,14 @@ class RLT5CaptionModel(nn.Module):
 			)
 
 			next_token_logits = outputs.logits[:, -1, :]
-			next_token_logits = next_token_logits - torch.max(next_token_logits, dim=-1).values.unsqueeze(1)
 			next_logits += (next_token_logits,)
 
 			if not greedy:
-				probs = F.softmax(next_token_logits, dim=-1)
-				next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
-				next_log_probs += (torch.log(probs),)
-			else:
-				next_tokens = torch.argmax(next_token_logits, dim=-1)
 				log_probs = F.log_softmax(next_token_logits, dim=-1)
 				next_log_probs += (log_probs,)
+				next_tokens = torch.distributions.Categorical(logits=log_probs.detach()).sample()
+			else:
+				next_tokens = torch.argmax(next_token_logits, dim=-1)
 
 			next_tokens = next_tokens * unfinished + pad_token_id * (1 - unfinished)
 
