@@ -47,12 +47,12 @@ def caption_wrapup(outs, _config):
 
 		# For WIT, compute captioning metrics with pycoco scripts, while P&R similar to Tell
 		if _config['dataset'] in ['wit', 'rlwit']:
-			create_pycoco_files(jsonl, path)
+			metrics = create_pycoco_files(jsonl, path)
 			precision, recall = precison_recall_tell(jsonl)
-			metrics = {
+			metrics.update({
 				'Entity all - precision': precision,
 				'Entity all - recall': recall
-			}
+			})
 		elif _config['dataset'] == ['goodnews', 'nytimes800k']:
 			metrics = all_metrics_tell(jsonl, _config['data_folder'])
 		else:
@@ -344,6 +344,13 @@ def create_pycoco_files(jsonl, path, split=False):
 			json.dump(hard['references'], f)
 		with open(os.path.join(path, 'hard_generated.json'), 'w') as f:
 			json.dump(hard['hypotheses'], f)
+	returned_metrics = dict({
+			'average caption length': df.r_length.mean(),
+			'average generated length': df.g_length.mean(),
+			'average caption jaccard': df.rc_jaccard.mean(),
+			'average generated jaccard': df.gc_jaccard.mean()
+		})
+	return returned_metrics
 
 def clip_score(jsonl, ds_path, return_per_instance_scores=False):
 	test_images = h5py.File(os.path.join(ds_path, 'test_IMAGES_wit.hdf5'), 'r')['images']

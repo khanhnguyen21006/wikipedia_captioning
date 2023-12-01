@@ -33,7 +33,7 @@ def config():
 	data_folder = '/data/users/vkhanh/all'
 	transform = 'resnet_h5py'
 	extract_context = ''
-	context_source = 'section'
+	wiki_context = False
 
 	losses = _loss_names({"lm": 1})
 	batch_size = 256  # accumulated batch size.
@@ -160,26 +160,26 @@ def prelim():
 	expt_name = "prelim"
 	losses = _loss_names({"lm": 1}) # , "wd": 1, "div": 1
 
-	# text_encoder = None
-	# text_decoder = 't5++'
-	# text_decoder_finetune = True
-	# precision = 32
+	image_encoder = 'resnet152'
+	text_encoder = None
+	text_decoder = 't5++'
+	text_decoder_finetune = True
+	precision = 32
 
-	# n_embed = 0
+	# text_encoder = None
+	# text_decoder = 'gpt2++'
+	# text_decoder_finetune = True
+
 	# wd_lambda = 1
 	# div_lambda = 1
-
-	text_encoder = None
-	text_decoder = 'gpt2++'
-	text_decoder_finetune = True
-
 	n_embed = 0
-	wd_lambda = 1
-	div_lambda = 1
+	max_epoch = 200
 
 	transform = 'resnet_h5py'
 	text_max_len = 512
-	per_gpu_batchsize = 32
+	per_gpu_batchsize = 16
+	val_check_interval = 0.25
+	batch_size = 64
 
 
 @ex.named_config

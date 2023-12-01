@@ -118,6 +118,7 @@ class WitDataset(BaseDataset):
                 description = merge(self.description_sents[i], n)
         else:
             description = self.descriptions[i]
+
         if self.hparams['extract_context'] != '':
             self.load_extracted_context(self.hparams['metric'])
             if re.compile(r"by_desc_\d+").match(self.hparams['extract_context']):
@@ -151,6 +152,10 @@ class WitDataset(BaseDataset):
             'section': context,
             'caption': caption
         }
+        if self.hparams['wiki_context']:
+            ret.update({
+                'section': description + '. ' + context,
+            })
         return ret
 
 @BaseDataset.register

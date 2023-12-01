@@ -133,8 +133,8 @@ def get_dataset(name):
 	else:
 		raise Exception(f"{key} Dataset is not supported.")
 
-COMPOSITION = ['section_caption', 'section_prompt']
-WIT_COMPOSITION = ['section_caption', 'section_prompt']
+# COMPOSITION = ['section_caption', 'section_prompt']
+GPT2PP_PROMPT = ['section_caption', 'section_prompt']
 #, 'description_caption', 'description_prompt','description_section_caption', 'description_section_prompt'
 
 TEXT_ENCODER_KEYS = ['description', 'section', 'description_section', 'caption']
@@ -174,6 +174,7 @@ def get_dataset_hparams(_config):
 
 	ext_args = _config["extract_context"].split('_')
 	metric, extract_context = None if ext_args[0] == 'None' else ext_args[0], '_'.join(ext_args[1:])
+	wiki_context = _config['wiki_context']
 
 	if not use_adapter and (use_gpt2_decoder or use_t5_decoder):  # for non-adapter models, images are processed separately
 		if image_size == 256:
@@ -183,10 +184,11 @@ def get_dataset_hparams(_config):
 
 	if name in ["wit", "witpage", "wikiweb2m"]:
 		context_keys = ['description', 'section'] + (['caption'] if not has_decoder else []) \
-						+ (WIT_COMPOSITION if use_gpt2pp_decoder else [])
+							+ (GPT2PP_PROMPT if use_gpt2pp_decoder else [])
 	else:
 		context_keys = ['section'] + (['caption'] if not has_decoder else []) \
-						+ (COMPOSITION if use_gpt2pp_decoder else [])
+							+ (GPT2PP_PROMPT if use_gpt2pp_decoder else [])
+
 	if has_decoder:
 		target_keys = ['caption'] + (['prompt'] if use_gpt2_decoder else [])
 	else:
@@ -200,6 +202,7 @@ def get_dataset_hparams(_config):
 		'text_max_len': text_ml,
 		'num_space': _config["n_embed"],
 		'extract_context': extract_context,
+		'wiki_context': wiki_context,
 		'metric': metric,
 	}
 
