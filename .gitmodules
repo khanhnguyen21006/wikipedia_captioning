@@ -2,3 +2,6 @@
 [submodule "cider"]
 	path = cider
 	url = https://github.com/ruotianluo/cider.git
+[submodule "transformers_wc"]
+	path = transformers_wc
+	url = https://github.com/khanhnguyen21006/transformers_wc.git

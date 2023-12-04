@@ -124,7 +124,7 @@ class GPT2(nn.Module):
 	def __init__(self, cfg, tokenizer, finetune):
 		super(GPT2, self).__init__()
 		self.gpt2 = GPT2LMHeadModel.from_pretrained("gpt2", config=cfg)
-		self.gpt2.resize_token_embeddings(len(tokenizer))
+		self.gpt2.resize_token_embeddings(tokenizer.get_length())
 		self.finetune_gpt2(finetune)
 
 	def finetune_gpt2(self, ft):
