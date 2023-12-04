@@ -14,7 +14,7 @@ The structure of this repo is as follows:
 3. How to train/evaluate models
 
 ## Set-up environment
-This code works in our environment with CUDA 11.4 and NVIDIA A40 GPUs
+This code works in our environment with CUDA 11.4 and NVIDIA A40 GPUs.
 First, to install all the dependencies from environment.yml:
 
 ```bash
