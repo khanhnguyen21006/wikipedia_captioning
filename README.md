@@ -54,7 +54,26 @@ Then, fine-tune the models on the captioning task for better performance:
 ```bash
 python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
 ```
-Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created inside `result/` to save the weights. You can also play with different training configurations, please check the `config.py` for more details. 
+Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created inside `result/` to save the weights. You can also play with different training configurations:
+
+| Argument | Values |
+|------|------|
+| `expt_name` | Experiment name |
+| `dataset` | Dataset name |
+| `data_folder` | Path to the dataset directory |
+| `transform` | Augmentations applied to training images, specified in `modules/data_pool.py` |
+| `text_decoder` | Model to train `gpt2++/t5++` |
+| `per_gpu_batchsize` | Batch size per gpu (default: 16) |
+| `batchsize` | Batch size for accumulated gradients (default: 256) |
+| `distributed` | Distributed training (default: True) |
+| `num_gpus` | Number of gpus (default: 2) |
+| `num_workers` | Number of workers (default: 8) |
+| `test` | Evaluation mode (default: False) |
+| `load_path` | Used with `test` = True for evaluation |
+| `ckpt_path` | Path to checkpoint file to resume training |
+| `result_dir` | Directory to save checkpoints |
+
+Please check the `config.py` for more options and details. 
 
 To evaluate the model on contextualized caption generation, use the following:
 ```bash
