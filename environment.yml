@@ -1,4 +1,4 @@
-name: wiki1
+name: wiki
 channels:
   - pytorch
   - defaults
@@ -25,4 +25,4 @@ dependencies:
     - pip==22.0.4
     - git+https://github.com/openai/CLIP.git
 
-prefix: /home/vkhanh/anaconda3/envs/wiki1
+prefix: /home/vkhanh/anaconda3/envs/wiki

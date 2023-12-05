@@ -54,6 +54,7 @@ class MESDModel(nn.Module):
 		if self.text_decoder is not None:
 			[
 				X_encode.update({k: {
+					f'{k}': batch[f'{k}'],
 					f'{k}_id': batch[f'{k}_id'], 
 					f'{k}_mask': batch[f'{k}_mask']
 				}})
@@ -76,6 +77,7 @@ class MESDModel(nn.Module):
 	def _encode_text(self, batch, k):
 		text_id, text_mask = batch[f'{k}_id'], batch[f'{k}_mask']
 		X_encode = {
+			f'{k}': batch[f'{k}'],
 			f'{k}_id': text_id,
 			f'{k}_mask': text_mask
 		}
@@ -101,11 +103,11 @@ class MESDModel(nn.Module):
 		X_encode['mask'] = X_mask.long()
 		return X_encode
 
-	def decode(self, X_encode):
+	def decode(self, X_encode, **decode_kwargs):
 		if isinstance(self.text_encoder, T5Adapter):
 			X_out, X_label = self.text_encoder(**X_encode)
 		else:
-			X_out, X_label = self.text_decoder(**X_encode)
+			X_out, X_label = self.text_decoder(**X_encode, **decode_kwargs)
 		X_decode = {
 			'loss': X_out['loss'],
 			'logits': X_out['logits'][..., :-1, :].contiguous(),

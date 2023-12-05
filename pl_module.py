@@ -38,7 +38,12 @@ class PlModule(pl.LightningModule):
 		out = self.model(batch)
 
 		if 'lm' in self.losses:
-			ret.update(objectives.compute_lm(self.model, out))
+			decode_kwargs = {
+				"dataset" : self.hparams._config['dataset'],
+		        "pt_objective": self.hparams._config['pt_objective'],
+		        "dec_tokenizer": self.trainer.datamodule.collate_hparams["dec_tokenizer"].tokenizer
+		    }
+			ret.update(objectives.compute_lm(self.model, out, **decode_kwargs))
 
 		if 'div' in self.losses:
 			ret.update(objectives.compute_div(self.model, out))

@@ -168,6 +168,9 @@ def get_dataset_hparams(_config):
 	use_gpt2pp_decoder = has_decoder and 'gpt2++' == decoder
 	use_adapter = (encoder == 't5-adapter') or (decoder == 'gpt2-adapter')
 
+	if _config["pt_objective"] is not None:
+		assert use_gpt2_decoder or use_t5_decoder or use_gpt2pp_decoder
+
 	vocab_path = _config["vocab_path"]
 	enc_tokenizer = get_tokenizer(encoder if has_encoder else decoder, path=vocab_path)
 	dec_tokenizer = get_tokenizer(decoder if has_decoder else encoder, path=vocab_path)

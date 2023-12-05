@@ -34,6 +34,7 @@ def config():
 	transform = 'resnet_h5py'
 	extract_context = ''
 	wiki_context = False
+	pt_objective = None  # optional 'BERT'|'T5'|'MNEM'
 
 	losses = _loss_names({"lm": 1})
 	batch_size = 256  # accumulated batch size.
@@ -140,12 +141,6 @@ def dist():
 @ex.named_config
 def wit():
 	dataset = 'wit'
-	data_folder = '/data/users/vkhanh/refined'
-
-
-@ex.named_config
-def witpage():
-	dataset = 'witpage'
 	data_folder = '/data/users/vkhanh/refined'
 
 

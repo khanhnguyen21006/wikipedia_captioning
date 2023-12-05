@@ -125,8 +125,8 @@ def prob_emb_loss(dist1, dist2, scale, shift):
     }
     return ret
 
-def compute_lm(model, out):
-    out = model.decode(out)
+def compute_lm(model, out, **kwargs):
+    out = model.decode(out, **kwargs)
     # acc = (out['logits'][..., :-1, :].contiguous(), out['labels'][..., 1:].contiguous())
     ret = {
         'lm_loss': out['loss'],

@@ -10,7 +10,7 @@ Code for the AAAI 2023 paper: "[Show, Interpret and Tell: Entity-aware Contextua
 The structure of this repo is as follows:
 
 1. Environment setup 
-2. Data pre-processing 
+2. Data preprocessing 
 3. How to train/evaluate models
 
 ## Set-up environment
@@ -25,18 +25,46 @@ spacy download en_core_web_sm
 
 To run experiment with GPT-2++ and T5++, you need to install the transformers version added as submodule, which contains with some modifications in the GPT2 adn T5 classes to enable the models to work with images.
 ```bash
-cd transformers
+cd transformers_wc
 pip install -e .
 ```
 
 ## WIT dataset
 The dataset that we use in the paper is built upon WIT dataset (refer to the original [repository](https://github.com/google-research-datasets/wit) for instructions of downloading the data). While the dataset is multilingual, we primarily focus on its English subset, even though there is no constraints to extend our work to other languages. 
 
-To preprocess and clean WIT data for Wikipedia Captioning task:
+To process and clean data (both image and text) for Wikipedia Captioning task, run:
 ```bash
 python utils/preprocess.py --dset wit/goodnews --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
 ```
-If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=pqxpAy), which is already cleaned and pre-processed.
+If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=pqxpAy), which is already cleaned and preprocessed.
 
 ## Train/Evaluate
+
+To train the models from scratch, run this command:
+```bash
+python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp expt_name="t5pp_wit"
+```
+The data augmentation we used for training can be set in modules/data_pool.py
+
+You can pretrain the models with one of the following objectives: T5/BERT/MNEM as follows:
+```bash
+python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp pt_objective='MNEM/T5/BERT'  expt_name="t5pp_pt_mnem_wit"
+```
+Then, fine-tune the models on the captioning task for better performance:
+```bash
+python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
+```
+
+Note, you need to specify the path to the datafolder as well as experiment name, which indicates the experiment folder created inside result/ to save the weights. You can also play with different training configurations, please check the config.py for more details. 
+
+To evaluate the model on contextualized caption generation, use the following:
+```bash
+python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
+```
+python train_scst.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp caption_eval expt_name="t5pp_pt_mnem_wit_ft_goodnews_eval" load_path="/path/to/model/weights"
+
+## Model Zoo
+TODO
+
+## Citation
 TODO

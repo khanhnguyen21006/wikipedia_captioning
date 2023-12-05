@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch.nn.functional import pad
 import torchtext
 from torchvision import models
 
@@ -8,9 +9,13 @@ from transformers import GPT2Config, GPT2LMHeadModel,\
 						T5Config, T5ForConditionalGeneration,\
 						ViTModel, CLIPModel,\
 						AutoModel
-import logging
-from .data_pool import get_tokenizer, Vocabulary
+
+from .data_pool import get_tokenizer, Vocabulary, pad_sequence, merge_padded_tensors
 from utils import GPT2_ADAPTER_LAYERS, T5_ADAPTER_LAYERS
+
+import random
+import spacy
+nlp = spacy.load("en_core_web_sm")
 
 def get_image_encoder(_config):
 	"""
@@ -392,8 +397,51 @@ class T5(nn.Module):
 	def prepare_forward(self, **kwargs):
 		text_id = kwargs['section']['section_id']
 		text_mask = kwargs['section']['section_mask']
-		X_label = kwargs['caption']['caption_id']
-		X_label[X_label == 0] = -100
+
+		pt_objective = kwargs['pt_objective']
+		dec_tokenizer = kwargs['dec_tokenizer']
+		dset = kwargs['dataset']
+		if pt_objective is not None:
+			assert pt_objective in {'T5', 'BERT', 'Full', 'MNEM'}
+			caption_id, caption_mask = [], []
+			X_label = []
+			if pt_objective == 'T5':
+				for _input_id in kwargs['caption']['caption_id']:
+					_new_input, _new_label = self.t5_mask_random_span(dec_tokenizer, _input_id.tolist())
+					caption_id.append(torch.LongTensor(_new_input))
+					caption_mask.append(torch.LongTensor([1] * len(_new_input)))
+					X_label.append(torch.LongTensor(_new_label))
+			elif pt_objective == 'BERT' or pt_objective == 'Full':
+				mask_token_id = 32099
+				full_mask = pt_objective == 'Full'
+				for _input_id in kwargs['caption']['caption_id']:
+					_new_input, _new_label = self.t5_bert_masking(dec_tokenizer, _input_id, mask_token_id, full_mask=full_mask)
+					caption_id.append(_new_input)
+					caption_mask.append(torch.LongTensor([1] * len(_new_input)))
+					X_label.append(_new_label)
+			elif pt_objective == 'MNEM':
+				mnem_token_id = 32099
+				_, mnem_masks = self.mnem_masking(dec_tokenizer, kwargs['caption']['caption'], kwargs['caption']['caption_id'], mnem_token_id, dset)
+				# pad a with 0 at both sides for edge cases when a starts or ends with 1
+				diff = torch.diff(pad(mnem_masks, (1, 1), mode='constant'))
+				for i, _input_id in enumerate(kwargs['caption']['caption_id']):
+					_input_id = _input_id.tolist()
+					_input_length = _input_id.index(dec_tokenizer.eos_token_id) + 1
+					start, end = torch.nonzero(diff[i] == 1, as_tuple=True)[0].tolist(), (torch.nonzero(diff[i] == -1, as_tuple=True)[0] - 1).tolist()
+					# -1 to make it consistent with gpt2 experiments
+					_new_input, _new_label = self.t5_replace_span(dec_tokenizer, _input_id, _input_length, list(zip(start, end)), mnem=True)
+					caption_id.append(torch.LongTensor(_new_input))
+					caption_mask.append(torch.LongTensor([1] * len(_new_input)))
+					X_label.append(torch.LongTensor(_new_label))
+			caption_id = pad_sequence(caption_id, batch_first=True, padding_value=dec_tokenizer.pad_token_id)  # pad pad_id
+			caption_mask = pad_sequence(caption_mask, batch_first=True)  # pad 0
+			# Workaround: torch does not have deterministic implementation for this operation
+			text_id = merge_padded_tensors(text_id.cpu(), caption_id.cpu(), dec_tokenizer.pad_token_id).to(text_id.device)
+			text_mask = merge_padded_tensors(text_mask.cpu(), caption_mask.cpu()).to(text_mask.device)
+			X_label = pad_sequence(X_label, batch_first=True, padding_value=-100).to(text_id.device)
+		else:
+			X_label = kwargs['caption']['caption_id']
+			X_label[X_label == 0] = -100
 		X_image = kwargs['image']['embedding']
 		bs, iml = X_image.size(0), X_image.size(1)
 		image_mask = torch.ones((bs, iml), dtype=torch.long, device=X_image.device)
@@ -422,6 +470,138 @@ class T5(nn.Module):
 			'tokenizer': kwargs['dec_tokenizer'].tokenizer,
 		}
 		return kwargs
+
+	def t5_mask_random_span(self, tokenizer, input_id, prob=0.15):
+		# mask random spans in input with unique mask IDs then in target, correspond each mask ID with the span GT.
+		mask_spans = []
+		input_length = input_id.index(tokenizer.eos_token_id) + 1  # find the first occurrence of EOS token and therefore input length
+		last_ind = (0 if input_id[0] != tokenizer.cls_token_id else 1)
+		prob = prob * 0.5 
+		while last_ind < input_length - 1:  # last token is EOS, which we don't want to mask
+			if len(mask_spans) < 100 and random.random() < prob:
+				start = last_ind
+				end = last_ind + random.randint(1, 5)  # create a span of 1-to-5 tokens.
+				end = min(end, input_length - 2)
+				mask_spans.append([start, end])
+				last_ind = end + 1
+			else:
+				last_ind += 1
+		return self.t5_replace_span(tokenizer, input_id, input_length, mask_spans)
+
+	def t5_bert_masking(self, tokenizer, input_id, mask, percent=0.15, full_mask=False):
+		eos = tokenizer.eos_token_id
+		input_length = input_id.tolist().index(eos) + 1
+		new_input_id = input_id[:input_length].clone().detach()
+		old_input_id = input_id[:input_length]
+		rand = torch.rand(input_length).to(new_input_id.device)
+
+		# create mask array
+		mask_arr = (rand <= percent) * (old_input_id != eos)
+		selection = torch.flatten(mask_arr.nonzero()).tolist()
+
+		if full_mask:
+			new_input_id[selection] = mask
+		else:
+			value_i = []
+			for idx in selection:
+				prob = random.random()
+				if prob <= 0.8:
+					value_i.append(mask)
+				elif prob <= 0.9:
+					value_i.append(random.randint(0, len(tokenizer)))
+				else:
+					value_i.append(new_input_id[idx])
+			new_input_id[selection] = torch.LongTensor(value_i).to(new_input_id)
+
+		assert new_input_id.size() == old_input_id.size()
+		return new_input_id, old_input_id
+
+	def mnem_masking(self, tokenizer, texts, input_ids, mask, dset, percent=0.8, model='T5', is_context=False):
+		mnem_masks = []
+		# We first compute the start and end points for each token.
+		# End points are exclusive.
+		for i, doc in enumerate(nlp.pipe(texts, disable=["tok2vec", "tagger", "parser", "attribute_ruler", "lemmatizer"])):
+				
+			tokens = tokenizer.convert_ids_to_tokens(input_ids[i])
+			assert len(tokens) == len(input_ids[i])
+
+			starts = []
+			ends = []
+			current = 0
+			for t_id, token in enumerate(tokens):
+				if t_id == 0:
+					if token == '<SOS>':  # gpt-2 context input id starts with '<SOS>'
+						starts.append(0)
+						current += 0
+						ends.append(0)
+					elif model == 'T5':  # t5 caption/context input id both start with '_'
+						if dset == 'goodnews' and (texts[i].startswith('\n') or texts[i].startswith('\n')):				
+							starts.append(current)
+							current += len(token)
+							ends.append(current)
+						else:
+							starts.append(0)
+							current += len(token) - 1
+							ends.append(current)
+					else:  # gpt-2 caption input id
+						starts.append(current)
+						current += len(token)
+						ends.append(current)
+				else:   
+					if token == '<PAD>' or token == '<pad>':
+						break
+					starts.append(current)
+					current += len(token) if token != '<unk>' and token != '<UNK>' else 1
+					ends.append(current)
+
+			mnem_mask = [0] * len(tokens)
+			# Next we get the character positions of named entities
+			for ent in doc.ents:
+				if random.random() < percent:
+					# A token is part of an entity if it lies strictly inside it
+					for t, (start, end, token) in enumerate(zip(starts, ends, tokens)):
+						entity_start = ent.start_char
+						if token[0] == 'Ġ' or token[0] == '▁':
+							entity_start -= 1
+						entity_end = ent.end_char
+						if not is_context:
+							if dset in ['goodnews', 'nytimes800k']:
+								cat_list = ['PERSON', 'ORG', 'GPE', 'NORP', 'LOC', 'EVENT']
+							else:
+								cat_list = ['PERSON', 'ORG', 'GPE']
+						else:
+							cat_list = ['PERSON', 'ORG', 'GPE', 'NORP', 'LOC', 'FAC', 'EVENT', 'PRODUCT']
+						if start >= entity_start and end <= entity_end and ent.label_ in cat_list:
+							mnem_mask[t] = 1
+			mnem_masks.append(mnem_mask)
+		mnem_masks = torch.BoolTensor(mnem_masks).to(input_ids)
+		input_ids = input_ids.masked_fill(mnem_masks.bool(), mask)
+
+		return input_ids, mnem_masks
+
+	def t5_replace_span(self, tokenizer, input_id, input_length, mask_spans, mnem=False):
+		lm_labels = []
+		new_input_id = []
+		mask_ID_counter = 0
+		previous_e = 0
+		for s, e in mask_spans:
+			extra_id = tokenizer._convert_token_to_id("<extra_id_%d>" % mask_ID_counter)
+			lm_labels.append(extra_id)
+			lm_labels.extend(input_id[s:e + 1])
+			new_input_id.extend(input_id[previous_e:s])
+			new_input_id.append(extra_id)
+			previous_e = e + 1
+			mask_ID_counter += 1
+
+		new_input_id += input_id[previous_e:input_length - 1]
+		if not mnem:
+			# add EOS token to lm_labels and new_inputs_list
+			lm_labels = lm_labels[:int(len(input_id) * 0.25) - 1]  # make sure lm_labels is within max length limit and we use a lower limit for the lm_labels length
+		lm_labels.append(tokenizer.eos_token_id)
+		new_input_id = new_input_id[:len(input_id) - 1]
+		new_input_id.append(tokenizer.eos_token_id)
+
+		return new_input_id, lm_labels
 
 class T5Adapter(T5):
 	def __init__(self, *args, **kwargs):
