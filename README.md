@@ -15,6 +15,7 @@ The structure of this repo is as follows:
 
 ## Set-up environment
 This code works in our environment with CUDA 11.4 and NVIDIA A40 GPUs.
+
 First, to install all the dependencies from environment.yml:
 
 ```bash
@@ -22,7 +23,7 @@ conda env create -f environment.yml
 spacy download en_core_web_sm
 ```
 
-To run experiment with GPT-2++ and T5++, you need to install the transformers version added as submodule, which contains with some modifications in the GPT2 adn T5 classes to enable the models to work with images.
+To run experiment with `GPT-2++` and `T5++`, you need to install the `transformers` version added as submodule, which contains with some modifications in the `GPT2` and `T5` classes to enable the models to work with images.
 ```bash
 cd transformers_wc
 pip install -e .
@@ -45,7 +46,7 @@ python main.py --print-config with cluster dist wit/goodnews data_folder='/path/
 ```
 The data augmentation for training can be set in `modules/data_pool.py`
 
-You can pretrain the models with one of the following objectives: T5/BERT/MNEM as follows:
+You can pretrain the models with one of the following objectives `T5/BERT/MNEM` as follows:
 ```bash
 python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp pt_objective='MNEM/T5/BERT'  expt_name="t5pp_pt_mnem_wit"
 ```
