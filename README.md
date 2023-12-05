@@ -20,7 +20,6 @@ First, to install all the dependencies from environment.yml:
 ```bash
 conda env create -f environment.yml
 spacy download en_core_web_sm
-
 ```
 
 To run experiment with GPT-2++ and T5++, you need to install the transformers version added as submodule, which contains with some modifications in the GPT2 adn T5 classes to enable the models to work with images.
@@ -44,7 +43,7 @@ To train the models from scratch, run this command:
 ```bash
 python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp expt_name="t5pp_wit"
 ```
-The data augmentation we used for training can be set in modules/data_pool.py
+The data augmentation for training can be set in `modules/data_pool.py`
 
 You can pretrain the models with one of the following objectives: T5/BERT/MNEM as follows:
 ```bash
@@ -54,14 +53,12 @@ Then, fine-tune the models on the captioning task for better performance:
 ```bash
 python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
 ```
-
-Note, you need to specify the path to the datafolder as well as experiment name, which indicates the experiment folder created inside result/ to save the weights. You can also play with different training configurations, please check the config.py for more details. 
+Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created inside `result/` to save the weights. You can also play with different training configurations, please check the `config.py` for more details. 
 
 To evaluate the model on contextualized caption generation, use the following:
 ```bash
-python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
+python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp caption_eval expt_name="t5pp_pt_mnem_wit_ft_goodnews_eval" load_path="/path/to/model/weights"
 ```
-python train_scst.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp caption_eval expt_name="t5pp_pt_mnem_wit_ft_goodnews_eval" load_path="/path/to/model/weights"
 
 ## Model Zoo
 TODO
