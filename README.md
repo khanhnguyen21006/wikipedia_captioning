@@ -30,13 +30,18 @@ pip install -e .
 ```
 
 ## WIT dataset
-The dataset that we use in the paper is built upon WIT dataset (refer to the original [repository](https://github.com/google-research-datasets/wit) for instructions of downloading the data). While the dataset is multilingual, we primarily focus on its English subset, even though there is no constraints to extend our work to other languages. 
+The dataset that we use in the paper is built upon WIT dataset (refer to the original [repository](https://github.com/google-research-datasets/wit) for instructions of downloading the data). While the dataset is multilingual, we primarily focus on its English subset, even though there is no constraints to extend our work to other languages.
 
 To process and clean data (both image and text) for Wikipedia Captioning task, run:
 ```bash
-python utils/preprocess.py --dset wit/goodnews --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
+python utils/preprocess.py --task prep_wit/prep_goodnews --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
 ```
 If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=pqxpAy), which is already cleaned and preprocessed.
+Note, due to the per-file size limits in `onedrive`, we have to split the `train_IMAGE_wit.hdf5` into 3 partitions `0`, `1` and `2` as in the `wit` folder. Thus, you need to do an extra step to join them together (then you can remove the partitions):
+```bash
+python utils/preprocess.py --task concat_hdf5 --save_dir /path/to/save/data/
+```
+Now, we are ready to go!
 
 ## Train/Evaluate
 
@@ -73,7 +78,7 @@ Note, you need to specify the path to the datafolder `data_folder` as well as ex
 | `ckpt_path` | Path to checkpoint file to resume training |
 | `result_dir` | Directory to save checkpoints |
 
-Please check the `config.py` for more options and details. 
+Please check the `config.py` and [pytorch-lighting](https://pytorch-lightning.readthedocs.io/en/1.5.10/common/trainer.html#trainer-flags) for more options and details. 
 
 To evaluate the model on contextualized caption generation, use the following:
 ```bash
@@ -81,7 +86,15 @@ python main.py --print-config with cluster dist wit/goodnews data_folder='/path/
 ```
 
 ## Model Zoo
-TODO
+We provide the resulting weights of `T5++` variants trained on different settings:
+| Pre-train | Fine-tune | Weights |
+|------|------|------|
+| `WIT` |  | [link]() |
+| `WIT+MNEM` |  | [link]() |
+| `WIT+T5` |  | [link]() |
+| `WIT+BERT` |  | [link]() |
+| `WIT` | `Goodnews` | [link]() |
+| `WIT` | `Goodnews+MNEM` | [link]() |
 
-## Citation
-TODO
+## Conclusion
+Thank you for your interest and sorry for the bugs!

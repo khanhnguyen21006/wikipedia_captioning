@@ -289,20 +289,58 @@ def clean_and_tokenize(text):
 			out += ' ' + token
 	return out.strip(), tokens
 
+def concat_hdf5(data_dir, save_dir):
+	images0 = h5py.File(os.path.join(save_dir, 'train_IMAGES_wit0.hdf5'), 'r')['images']	
+	images1 = h5py.File(os.path.join(save_dir, 'train_IMAGES_wit1.hdf5'), 'r')['images']
+	images2 = h5py.File(os.path.join(save_dir, 'train_IMAGES_wit2.hdf5'), 'r')['images']
+	with h5py.File(os.path.join(save_dir, 'train_IMAGES_wit.hdf5'), 'a') as h:
+		total = len(images0)+len(images1)+len(images2)
+		images = h.create_dataset('images', (total, 3, 256, 256), dtype='uint8')
+
+		count = 0
+		for _ind ,_images in enumerate([images0, images1, images2]):
+			for _im in tqdm(_images, desc=f'writing data {_ind}'):
+				images[count] = _im
+				count += 1
+
+def split_hdf5(data_dir):
+	with h5py.File(os.path.join(data_dir, 'train_IMAGES_wit.hdf5'), 'r') as h:
+		print("reading data")
+		images = h['images']
+		dlen = len(images)
+		print("Total ", dlen)
+		with h5py.File(os.path.join(data_dir, 'train_IMAGES_wit0.hdf5'), 'a') as h0:
+			images_h5py0 = h0.create_dataset('images', (len(images[:dlen//3]), 3, 256, 256), dtype='uint8')
+			for _ind, _im in tqdm(enumerate(images[:dlen//3]), desc=f'writing data 0'):
+				images_h5py0[_ind] = _im
+			print("Split 0 ", len(images_h5py0))
+		with h5py.File(os.path.join(data_dir, 'train_IMAGES_wit1.hdf5'), 'a') as h1:
+			images_h5py1 = h1.create_dataset('images', (len(images[dlen//3:dlen*2//3]), 3, 256, 256), dtype='uint8')
+			for _ind, _im in tqdm(enumerate(images[dlen//3:dlen*2//3]), desc=f'writing data 1'):
+				images_h5py1[_ind] = _im
+			print("Split 1 ", len(images_h5py1))
+		with h5py.File(os.path.join(data_dir, 'train_IMAGES_wit2.hdf5'), 'a') as h2:
+			images_h5py2 = h2.create_dataset('images', (len(images[dlen*2//3:]), 3, 256, 256), dtype='uint8')
+			for _ind, _im in tqdm(enumerate(images[dlen*2//3:]), desc=f'writing data 2'):
+				images_h5py2[_ind] = _im
+			print("Split 2 ", len(images_h5py2))
+
 FUNC_DICT = {
-	'wit': preprocess_wit,
-	'goodnews': preprocess_goodnews,
+	'prep_wit': preprocess_wit,
+	'prep_goodnews': preprocess_goodnews,
+	'prep_nytimes800k': preprocess_nytimes800k,
+	'concat_hdf5': concat_hdf5,
 }
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Pre-processing data for Wiki Caption task, support WIT/GoodNews datasets.')
-	parser.add_argument('--dset', type=str, help='dataset')
+	parser.add_argument('--task', type=str, help='preprocessing dataset function')
 	parser.add_argument('--data_dir', type=str, default='', help='path to the original data')
 	parser.add_argument('--save_dir', type=str, default='', help='path to save Wiki Caption data')
 	args = parser.parse_args()
 
-	dset = args.dset
+	task = args.task
 	data_dir = args.data_dir
 	save_dir = args.save_dir
 
-	FUNC_DICT[dset](data_dir, save_dir)
+	FUNC_DICT[task](data_dir, save_dir)

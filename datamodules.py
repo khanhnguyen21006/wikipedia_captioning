@@ -60,7 +60,7 @@ class DataModule(LightningDataModule):
             batch_size=self.batch_size,
             sampler=self.train_sampler,
             num_workers=self.num_workers,
-            pin_memory=True,  # consider switching this off as images are already processed and only need to call cuda()
+            pin_memory=True,  # consider turning this off as images are already processed
             collate_fn=self.collate_fn,
         )
         return loader

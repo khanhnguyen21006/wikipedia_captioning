@@ -43,7 +43,7 @@ def config():
 	model = 'multi_encoder_single_decoder' # default
 	image_encoder = 'resnet152'  # mandatory
 	text_encoder = None  # optional 'roberta'|'gru'|'sbert'|'st5'|'t5-adapter'
-	text_decoder = None  # optional 'gpt-2'|'t5'
+	text_decoder = None  # optional 'gpt2'|'t5'|'gpt2++'|'t5++'
 	image_pooling = 'pcme'  # optional 'pcme'|'slot'|'gaussian'
 	text_pooling = 'pcme'  #
 	fuse = None

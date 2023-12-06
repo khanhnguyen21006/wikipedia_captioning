@@ -67,12 +67,9 @@ def main(_config):
         val_check_interval=_config["val_check_interval"],
         num_sanity_val_steps=_config["num_sanity_val_steps"],
         gradient_clip_val=_config["gradient_clip_val"],
-        # detect_anomaly=True,
-        # track_grad_norm=2
     )
 
     if not _config["test"]:
         trainer.fit(model, datamodule=data_module, ckpt_path=_config["ckpt_path"])
     else:
         trainer.test(model, datamodule=data_module, ckpt_path=_config["ckpt_path"])
-
