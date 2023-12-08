@@ -16,14 +16,14 @@ The structure of this repo is as follows:
 ## Set-up environment
 This code works in our environment with CUDA 11.4 and NVIDIA A40 GPUs.
 
-First, to install all the dependencies from environment.yml:
+First, to install all the dependencies from `environment.yml`:
 
 ```bash
 conda env create -f environment.yml
 spacy download en_core_web_sm
 ```
 
-To run experiment with `GPT2++` and `T5++`, you need to install the `transformers` version added as submodule, which contains with some modifications in the `GPT2` and `T5` classes to enable the models to work with images.
+To run experiments with `GPT2++` and `T5++`, you need to install the `transformers` version added as submodule, which contains some modifications in the `GPT2` and `T5` classes to enable the models to work with images.
 ```bash
 cd transformers_wc
 pip install -e .
@@ -91,7 +91,7 @@ python main.py --print-config with cluster dist wit/goodnews data_folder='/path/
 We provide the resulting weights of `T5++` variants (`T5+resnet152`) trained on different settings. Unless specified, models are trained with the captioning objective.
 | Pre-train | Fine-tune | Weights |
 |------|------|------|
-| `WIT` |  | [link]() |
+| `WIT` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EtULUlYp8vZHve-7r7HvyLsBZv88xPAGV_cNTIYpGuJyJw?e=dcuaQS) |
 | `WIT+MNEM` |  | [link]() |
 | `WIT+T5` |  | [link]() |
 | `WIT+BERT` |  | [link]() |

@@ -10,4 +10,4 @@ utils/visualize_utils.py
 utils/custom_cider.py
 environment.yml
 cider/*
-log/*
+log/
