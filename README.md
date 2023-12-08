@@ -34,7 +34,7 @@ The dataset that we use in the paper is built upon WIT dataset (refer to the ori
 
 To process and clean data (both image and text) for Wikipedia Captioning task, run:
 ```bash
-python utils/preprocess.py --task prep_wit|prep_goodnews --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
+python utils/preprocess.py --task prep_wit --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
 ```
 If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=pqxpAy), which is already cleaned and preprocessed.
 
@@ -48,17 +48,17 @@ Now, we are ready to go!
 
 To train the models from scratch, run this command:
 ```bash
-python main.py --print-config with cluster dist wit|goodnews data_folder='/path/to/the/data' t5pp|gpt2pp expt_name="t5pp_wit"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp expt_name="t5pp_wit"
 ```
 The data augmentation for training can be set in `modules/data_pool.py`
 
 You can pre-train the models with one of the following objectives `T5/BERT/MNEM` as follows:
 ```bash
-python main.py --print-config with cluster dist wit|goodnews data_folder='/path/to/the/data' t5pp|gpt2pp pt_objective='MNEM/T5/BERT'  expt_name="t5pp_pt_mnem_wit"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp pt_objective='MNEM/T5/BERT'  expt_name="t5pp_pt_mnem_wit"
 ```
 Then, fine-tune the models on the captioning task to see better performance:
 ```bash
-python main.py --print-config with cluster dist wit|goodnews data_folder='/path/to/the/data' t5pp|gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
 ```
 
 Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created in `result/` (by default) to save the weights. You can also play with different training configurations:
@@ -66,10 +66,10 @@ Note, you need to specify the path to the datafolder `data_folder` as well as ex
 | Argument | Values |
 |------|------|
 | `expt_name` | Experiment name |
-| `dataset` | Dataset name `wit|goodnews` |
+| `dataset` | Dataset name `wit/goodnews` |
 | `data_folder` | Path to the dataset directory |
 | `transform` | Augmentations applied to training images, specified in `modules/data_pool.py` |
-| `text_decoder` | Model to train `gpt2++|t5++` |
+| `text_decoder` | Model to train `gpt2++/t5++` |
 | `per_gpu_batchsize` | Batch size per gpu (default: `16`) |
 | `batchsize` | Batch size for accumulated gradients (default: `256`) |
 | `distributed` | Distributed training (default: `True`) |
@@ -84,7 +84,7 @@ Please check the `config.py` and [pytorch-lighting](https://pytorch-lightning.re
 
 To evaluate the model on contextualized caption generation, use the following:
 ```bash
-python main.py --print-config with cluster dist wit|goodnews data_folder='/path/to/the/data' t5pp|gpt2pp caption_eval expt_name="t5pp_pt_mnem_wit_ft_goodnews_eval" load_path="/path/to/model/weights"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp caption_eval expt_name="t5pp_pt_mnem_wit_ft_goodnews_eval" load_path="/path/to/model/weights"
 ```
 
 ## Model Zoo
