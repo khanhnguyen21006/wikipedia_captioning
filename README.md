@@ -76,7 +76,7 @@ Note, you need to specify the path to the datafolder `data_folder` as well as ex
 | `num_gpus` | Number of gpus (default: `2`) |
 | `num_workers` | Number of workers (default: `8`) |
 | `test` | Evaluation mode (default: `False`) |
-| `load_path` | Used with `test = True` for evaluation |
+| `load_path` | Used with `test=True` for evaluation |
 | `ckpt_path` | Path to checkpoint file to resume training |
 | `result_dir` | Directory to save checkpoints (default: `result/`)|
 
