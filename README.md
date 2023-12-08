@@ -23,13 +23,13 @@ conda env create -f environment.yml
 spacy download en_core_web_sm
 ```
 
-To run experiment with `GPT-2++` and `T5++`, you need to install the `transformers` version added as submodule, which contains with some modifications in the `GPT2` and `T5` classes to enable the models to work with images.
+To run experiment with `GPT2++` and `T5++`, you need to install the `transformers` version added as submodule, which contains with some modifications in the `GPT2` and `T5` classes to enable the models to work with images.
 ```bash
 cd transformers_wc
 pip install -e .
 ```
 
-## WIT dataset
+## WIT Dataset
 The dataset that we use in the paper is built upon WIT dataset (refer to the original [repository](https://github.com/google-research-datasets/wit) for instructions of downloading the data). While the dataset is multilingual, we primarily focus on its English subset, even though there is no constraints to extend our work to other languages.
 
 To process and clean data (both image and text) for Wikipedia Captioning task, run:
@@ -37,7 +37,8 @@ To process and clean data (both image and text) for Wikipedia Captioning task, r
 python utils/preprocess.py --task prep_wit/prep_goodnews --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
 ```
 If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=pqxpAy), which is already cleaned and preprocessed.
-Note, due to the per-file size limits in `onedrive`, we have to split the `train_IMAGE_wit.hdf5` into 3 partitions `0`, `1` and `2` as in the `wit` folder. Thus, you need to do an extra step to join them together (then you can remove the partitions):
+
+The total size of our dataset constructed from WIT is `~386GB` . Due to the per-file size limits in `onedrive`, we have to split the `train_IMAGE_wit.hdf5` into 3 partitions `0`, `1` and `2` as in the `wit` folder. Thus, you need to do an extra step to join them together (then you can remove the partitions):
 ```bash
 python utils/preprocess.py --task concat_hdf5 --save_dir /path/to/save/data/
 ```
@@ -51,32 +52,33 @@ python main.py --print-config with cluster dist wit/goodnews data_folder='/path/
 ```
 The data augmentation for training can be set in `modules/data_pool.py`
 
-You can pretrain the models with one of the following objectives `T5/BERT/MNEM` as follows:
+You can pre-train the models with one of the following objectives `T5/BERT/MNEM` as follows:
 ```bash
 python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp pt_objective='MNEM/T5/BERT'  expt_name="t5pp_pt_mnem_wit"
 ```
-Then, fine-tune the models on the captioning task for better performance:
+Then, fine-tune the models on the captioning task to see better performance:
 ```bash
 python main.py --print-config with cluster dist wit/goodnews data_folder='/path/to/the/data' t5pp/gpt2pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
 ```
-Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created inside `result/` to save the weights. You can also play with different training configurations:
+
+Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created in `result/` (by default) to save the weights. You can also play with different training configurations:
 
 | Argument | Values |
 |------|------|
 | `expt_name` | Experiment name |
-| `dataset` | Dataset name |
+| `dataset` | Dataset name `wit/goodnews` |
 | `data_folder` | Path to the dataset directory |
 | `transform` | Augmentations applied to training images, specified in `modules/data_pool.py` |
 | `text_decoder` | Model to train `gpt2++/t5++` |
-| `per_gpu_batchsize` | Batch size per gpu (default: 16) |
-| `batchsize` | Batch size for accumulated gradients (default: 256) |
-| `distributed` | Distributed training (default: True) |
-| `num_gpus` | Number of gpus (default: 2) |
-| `num_workers` | Number of workers (default: 8) |
-| `test` | Evaluation mode (default: False) |
-| `load_path` | Used with `test` = True for evaluation |
+| `per_gpu_batchsize` | Batch size per gpu (default: `16`) |
+| `batchsize` | Batch size for accumulated gradients (default: `256`) |
+| `distributed` | Distributed training (default: `True`) |
+| `num_gpus` | Number of gpus (default: `2`) |
+| `num_workers` | Number of workers (default: `8`) |
+| `test` | Evaluation mode (default: `False`) |
+| `load_path` | Used with `test = True` for evaluation |
 | `ckpt_path` | Path to checkpoint file to resume training |
-| `result_dir` | Directory to save checkpoints |
+| `result_dir` | Directory to save checkpoints (default: `result/`)|
 
 Please check the `config.py` and [pytorch-lighting](https://pytorch-lightning.readthedocs.io/en/1.5.10/common/trainer.html#trainer-flags) for more options and details. 
 
@@ -86,15 +88,15 @@ python main.py --print-config with cluster dist wit/goodnews data_folder='/path/
 ```
 
 ## Model Zoo
-We provide the resulting weights of `T5++` variants trained on different settings:
+We provide the resulting weights of `T5++` variants (`T5+resnet152`) trained on different settings. Unless specified, models are trained with the captioning objective.
 | Pre-train | Fine-tune | Weights |
 |------|------|------|
 | `WIT` |  | [link]() |
 | `WIT+MNEM` |  | [link]() |
 | `WIT+T5` |  | [link]() |
 | `WIT+BERT` |  | [link]() |
-| `WIT` | `Goodnews` | [link]() |
-| `WIT` | `Goodnews+MNEM` | [link]() |
+| `WIT` | `GoodNews` | [link]() |
+| `WIT` | `GoodNews+MNEM` | [link]() |
 
 ## Conclusion
 Thank you for your interest and sorry for the bugs!

@@ -44,8 +44,8 @@ def config():
 	image_encoder = 'resnet152'  # mandatory
 	text_encoder = None  # optional 'roberta'|'gru'|'sbert'|'st5'|'t5-adapter'
 	text_decoder = None  # optional 'gpt2'|'t5'|'gpt2++'|'t5++'
-	image_pooling = 'pcme'  # optional 'pcme'|'slot'|'gaussian'
-	text_pooling = 'pcme'  #
+	image_pooling = None  # optional 'pcme'|'slot'|'gaussian'
+	text_pooling = None  #
 	fuse = None
 	embed_dim = 768  # == decoder_dim, since text decoder has no linear projection
 	image_encoder_finetune = False
@@ -158,8 +158,6 @@ def gpt2pp():
 	text_encoder = None
 	text_decoder = 'gpt2++'
 	text_decoder_finetune = True
-	image_pooling = None 
-	text_pooling = None
 
 	n_embed = 0
 	max_epoch = 200
@@ -181,8 +179,6 @@ def t5pp():
 	text_decoder = 't5++'
 	text_decoder_finetune = True
 	precision = 32
-	image_pooling = None 
-	text_pooling = None
 
 	n_embed = 0
 	max_epoch = 200

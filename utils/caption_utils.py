@@ -53,11 +53,11 @@ def caption_wrapup(outs, _config):
 				'Entity all - precision': precision,
 				'Entity all - recall': recall
 			})
-		elif _config['dataset'] == ['goodnews', 'nytimes800k']:
+		elif _config['dataset'] in ['goodnews', 'nytimes800k']:
 			metrics = all_metrics_tell(jsonl, _config['data_folder'])
 		else:
-			raise ValueError(f"Invalid {_config['dataset']} dataset.")
-		metrics.update(clip_score(jsonl, _config['data_folder']))
+			raise ValueError(f"Invalid dataset: {_config['dataset']}.")
+		metrics.update(clip_score(jsonl, _config['dataset'], _config['data_folder']))
 		print(metrics)
 
 		with open(os.path.join(path, 'metrics.json'), 'w') as f:
@@ -352,9 +352,9 @@ def create_pycoco_files(jsonl, path, split=False):
 		})
 	return returned_metrics
 
-def clip_score(jsonl, ds_path, return_per_instance_scores=False):
-	test_images = h5py.File(os.path.join(ds_path, 'test_IMAGES_wit.hdf5'), 'r')['images']
-	test_image_ids = json.load(open(os.path.join(ds_path, 'test_IMAGEIDS_wit.json'), 'r'))
+def clip_score(jsonl, ds_name, ds_path, return_per_instance_scores=False):
+	test_images = h5py.File(os.path.join(ds_path, f'test_IMAGES_{ds_name}.hdf5'), 'r')['images']
+	test_image_ids = json.load(open(os.path.join(ds_path, f'test_IMAGEIDS_{ds_name}.json'), 'r'))
 
 	images, image_ids, candidates, references = [], [], [], []
 	for jline in tqdm(jsonl):

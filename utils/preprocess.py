@@ -1,6 +1,5 @@
-import os, json, base64, io, glob
+import argparse, os, json, base64, io, glob
 import string, re
-import argparse
 import h5py
 import cv2
 import spacy
@@ -188,62 +187,62 @@ def preprocess_nytimes800k(data_dir, save_dir):
 	client = MongoClient(host='localhost', port=27017)
 
 	for _split in ['train', 'valid', 'test']:
-	    print(f"Processing {_split} data...")
-	    db = client.nytimes
+		print(f"Processing {_split} data...")
+		db = client.nytimes
 
-	    count = 0
-	    image_paths, articles, captions = [], [], []  
-	    image_ids, image_urls = [], []
-	    for article in tqdm(db.articles.find({'split': _split})):
-	        count += 1
-	        sections = article['parsed_section']
-	        paragraphs = []
-	        for section in sections:
-	            if section['type'] == 'paragraph':
-	                paragraphs.append(section['text'])
-	        article_text = '\n'.join(paragraphs).strip()
-	        article_text, _ = clean_and_tokenize(article_text)
-	        
-	        # no of captions is as many as no of images
-	        for pos in article['image_positions']:
-	            image_path = os.path.join(data_folder, f"{sections[pos]['hash']}.jpg")
-	            image = process_image(image_path, sections[pos]['hash'])
-	            if image is None:
-	                continue
-	            image_paths.append(image_path)
-	            articles.append(article_text)
-	            caption_text, _ = clean_and_tokenize(sections[pos]['text'].strip())
-	            captions.append(caption_text)
-	            image_ids.append(sections[pos]['hash'])
-	            image_urls.append(article['web_url'])
-	    print(f'Number of {_split} articles : {count}')
+		count = 0
+		image_paths, articles, captions = [], [], []
+		image_ids, image_urls = [], []
+		for article in tqdm(db.articles.find({'split': _split})):
+			count += 1
+			sections = article['parsed_section']
+			paragraphs = []
+			for section in sections:
+				if section['type'] == 'paragraph':
+					paragraphs.append(section['text'])
+			article_text = '\n'.join(paragraphs).strip()
+			article_text, _ = clean_and_tokenize(article_text)
 
-	    split_df = pd.DataFrame(data={'image_id':image_ids, 'article': articles, 
-	    								'caption': captions, 'url':image_urls, 'path': image_paths})
-	    split_df = split_df.drop_duplicates(subset=['image_id', 'article', 'caption'])
-	    
-	    with h5py.File(os.path.join(save_dir, 'all', _split + '_IMAGES_nytimes800k.hdf5'), 'a') as h:
-	        images = h.create_dataset('images', (len(split_df), 3, 256, 256), dtype='uint8')
-	        for i, (idx, row) in tqdm(enumerate(split_df.iterrows())):
-	            images[i] = process_image(row.path, row.image_id)
-	            # # You can also load the pre-computed FaceNet embeddings of the faces in the image
-	            # facenet_embeds = sections[pos]['facenet_details']['embeddings']
+			# no of captions is as many as no of images
+			for pos in article['image_positions']:
+				image_path = os.path.join(data_folder, f"{sections[pos]['hash']}.jpg")
+				image = process_image(image_path, sections[pos]['hash'])
+				if image is None:
+					continue
+				image_paths.append(image_path)
+				articles.append(article_text)
+				caption_text, _ = clean_and_tokenize(sections[pos]['text'].strip())
+				captions.append(caption_text)
+				image_ids.append(sections[pos]['hash'])
+				image_urls.append(article['web_url'])
+		print(f'Number of {_split} articles : {count}')
 
-	            # # Object embeddings are stored in a separate collection due to a size limit in mongo
-	            # obj = db.objects.find_one({'_id': sections[pos]['hash']})
-	            # object_embeds = obj['object_features']
+		split_df = pd.DataFrame(data={'image_id':image_ids, 'article': articles,
+										'caption': captions, 'url':image_urls, 'path': image_paths})
+		split_df = split_df.drop_duplicates(subset=['image_id', 'article', 'caption'])
 
-	        # Sanity check
-	        assert len(split_df) == len(images)
-	        print(f'Final {_split} data points: {len(images)}')
-	        with open(os.path.join(save_dir, category, _split + '_STRCONTEXTS_nytimes800k.json'), 'w') as j:
-	            json.dump(split_df.article.tolist(), j)
-	        with open(os.path.join(save_dir, category, _split + '_STRCAPS_nytimes800k.json'), 'w') as j:
-	            json.dump(split_df.caption.tolist(), j)
-	        with open(os.path.join(save_dir, category, _split + '_IMAGEIDS_nytimes800k.json'), 'w') as j:
-	            json.dump(split_df.image_id.tolist(), j)
-	        with open(os.path.join(save_dir, category, _split + '_IMAGEURLS_nytimes800k.json'), 'w') as j:
-	            json.dump(split_df.url.tolist(), j)
+		with h5py.File(os.path.join(save_dir, 'all', _split + '_IMAGES_nytimes800k.hdf5'), 'a') as h:
+			images = h.create_dataset('images', (len(split_df), 3, 256, 256), dtype='uint8')
+			for i, (idx, row) in tqdm(enumerate(split_df.iterrows())):
+				images[i] = process_image(row.path, row.image_id)
+				# # You can also load the pre-computed FaceNet embeddings of the faces in the image
+				# facenet_embeds = sections[pos]['facenet_details']['embeddings']
+
+				# # Object embeddings are stored in a separate collection due to a size limit in mongo
+				# obj = db.objects.find_one({'_id': sections[pos]['hash']})
+				# object_embeds = obj['object_features']
+
+			# Sanity check
+			assert len(split_df) == len(images)
+			print(f'Final {_split} data points: {len(images)}')
+			with open(os.path.join(save_dir, category, _split + '_STRCONTEXTS_nytimes800k.json'), 'w') as j:
+				json.dump(split_df.article.tolist(), j)
+			with open(os.path.join(save_dir, category, _split + '_STRCAPS_nytimes800k.json'), 'w') as j:
+				json.dump(split_df.caption.tolist(), j)
+			with open(os.path.join(save_dir, category, _split + '_IMAGEIDS_nytimes800k.json'), 'w') as j:
+				json.dump(split_df.image_id.tolist(), j)
+			with open(os.path.join(save_dir, category, _split + '_IMAGEURLS_nytimes800k.json'), 'w') as j:
+				json.dump(split_df.url.tolist(), j)
 
 def process_image(im_b64, img_url):
 	try:
