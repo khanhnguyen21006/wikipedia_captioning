@@ -95,8 +95,8 @@ We provide the resulting weights of `T5++` variants (`T5+resnet152`) trained on 
 | `WIT+MNEM` |  | [link]() |
 | `WIT+T5` |  | [link]() |
 | `WIT+BERT` |  | [link]() |
-| `WIT` | `GoodNews` | [link]() |
-| `WIT` | `GoodNews+MNEM` | [link]() |
+| `WIT` | `GoodNews` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EhZKCPND7tFOjceC9IvrsyoBx1zkFGNh8IjdNBWwh_0G2g?e=AcagpB) |
+| `WIT` | `GoodNews+MNEM` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ep2W_2JeY2hNi19CvkkiPhcB2_zOzFP8apepGrE9HI0bwQ?e=I6DB1D) |
 
 ## Conclusion
 Thank you for your interest and sorry for the bugs!
