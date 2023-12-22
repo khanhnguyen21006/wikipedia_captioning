@@ -14,9 +14,9 @@ The structure of this repo is as follows:
 3. How to train/evaluate models
 
 ## Set-up environment
-This code works in our environment with CUDA 11.4 and NVIDIA A40 GPUs.
+This code works in our local environment with CUDA 11.4 and NVIDIA A40 GPUs.
 
-First, to install all the dependencies from `environment.yml`:
+First, install all the dependencies from `environment.yml`:
 
 ```bash
 conda env create -f environment.yml
@@ -46,7 +46,7 @@ Now, we are ready to go!
 
 ## Train/Evaluate
 
-To train the models from scratch, run this command:
+To train the models `GPT2++/T5++` from scratch, run this command:
 ```bash
 python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp expt_name="t5pp_wit"
 ```
@@ -54,11 +54,11 @@ The data augmentation for training can be set in `modules/data_pool.py`
 
 You can pre-train the models with one of the following objectives `T5/BERT/MNEM` as follows:
 ```bash
-python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp pt_objective='MNEM/T5/BERT'  expt_name="t5pp_pt_mnem_wit"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp pt_objective='MNEM' expt_name="t5pp_pt_mnem_wit"
 ```
 Then, fine-tune the models on the captioning task to see better performance:
 ```bash
-python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_goodnews"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp load_path='/path/to/pretrained/weights' expt_name="t5pp_pt_mnem_wit_ft_wit"
 ```
 
 Note, you need to specify the path to the datafolder `data_folder` as well as experiment name `expt_name`, which indicates the experiment folder created in `result/` (by default) to save the weights. You can also play with different training configurations:
@@ -84,19 +84,20 @@ Please check the `config.py` and [pytorch-lighting](https://pytorch-lightning.re
 
 To evaluate the model on contextualized caption generation, use the following:
 ```bash
-python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp caption_eval expt_name="t5pp_pt_mnem_wit_ft_goodnews_eval" load_path="/path/to/model/weights"
+python main.py --print-config with cluster dist wit data_folder='/path/to/the/data' t5pp caption_eval expt_name="expt_name_eval" load_path="/path/to/model/weights"
 ```
 
 ## Model Zoo
-We provide the resulting weights of `T5++` variants (`T5+resnet152`) trained on different settings. Unless specified, models are trained with the captioning objective.
+We provide the resulting weights of `T5++` variants (`T5+resnet152`) trained on different settings. Unless specified aside, models are trained with the language modelling objective.
 | Pre-train | Fine-tune | Weights |
 |------|------|------|
-| `WIT` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EtULUlYp8vZHve-7r7HvyLsBZv88xPAGV_cNTIYpGuJyJw?e=dcuaQS) |
-| `WIT+MNEM` |  | [link]() |
+| `WIT` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EtULUlYp8vZHve-7r7HvyLsBw-T3sLm8YCrTeQ1hsK8Omg?e=GC73qD) |
+| `WIT+MNEM` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EgwpXGudCfFPmBQNjTmqLPsB0OvohKQveABAzdEHsgnqyg?e=2BkOF1) |
 | `WIT+T5` |  | [link]() |
 | `WIT+BERT` |  | [link]() |
-| `WIT` | `GoodNews` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EhZKCPND7tFOjceC9IvrsyoBx1zkFGNh8IjdNBWwh_0G2g?e=AcagpB) |
-| `WIT` | `GoodNews+MNEM` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ep2W_2JeY2hNi19CvkkiPhcB2_zOzFP8apepGrE9HI0bwQ?e=I6DB1D) |
+| `WIT+MNEM` | `WIT` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ejj2AluQC-tPjqHiF_g-TNwBAmfaVXeoL92t5kmXGQWs9w?e=Cgfjx2) |
+| `WIT` | `GoodNews` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EhZKCPND7tFOjceC9IvrsyoBx1zkFGNh8IjdNBWwh_0G2g?e=kXVMYX) |
+| `WIT` | `GoodNews+MNEM` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ep2W_2JeY2hNi19CvkkiPhcB2_zOzFP8apepGrE9HI0bwQ?e=bKD3KZ) |
 
 ## Conclusion
 Thank you for your interest and sorry for the bugs!
