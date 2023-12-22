@@ -36,7 +36,7 @@ To process and clean data (both image and text) for Wikipedia Captioning task, r
 ```bash
 python utils/preprocess.py --task prep_wit --data_dir /path/to/original/data/ --save_dir /path/to/save/data/
 ```
-If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=pqxpAy), which is already cleaned and preprocessed.
+If you want to directly start working on the same dataset as ours, please download the data split from [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Er_nNnUqoidBk2ETpLO0AI0BVYYC6vAx3xO8fnAL6-LtrA?e=OB8Sie), which is already cleaned and preprocessed.
 
 The total size of our dataset constructed from WIT is `~386GB` . Due to the per-file size limits in `onedrive`, we have to split the `train_IMAGE_wit.hdf5` into 3 partitions `0`, `1` and `2` as in the `wit` folder. Thus, you need to do an extra step to join them together (then you can remove the partitions):
 ```bash
@@ -101,3 +101,4 @@ We provide [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_ua
 
 ## Conclusion
 Thank you for your interest and sorry for the bugs!
+
