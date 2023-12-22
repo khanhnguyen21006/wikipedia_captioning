@@ -530,7 +530,7 @@ class T5(nn.Module):
 			current = 0
 			for t_id, token in enumerate(tokens):
 				if t_id == 0:
-					if token == '<SOS>':  # gpt-2 context input id starts with '<SOS>'
+					if token == '<SOS>':  # gpt2 context input id starts with '<SOS>'
 						starts.append(0)
 						current += 0
 						ends.append(0)
@@ -543,7 +543,7 @@ class T5(nn.Module):
 							starts.append(0)
 							current += len(token) - 1
 							ends.append(current)
-					else:  # gpt-2 caption input id
+					else:  # gpt2 caption input id
 						starts.append(current)
 						current += len(token)
 						ends.append(current)
