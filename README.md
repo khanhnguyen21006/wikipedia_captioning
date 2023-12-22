@@ -88,16 +88,16 @@ python main.py --print-config with cluster dist wit data_folder='/path/to/the/da
 ```
 
 ## Model Zoo
-We provide the resulting weights of `T5++` variants (`T5+resnet152`) trained on different settings. Unless specified aside, models are trained with the language modelling objective.
+We provide [here](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Eh1TL57nukdDmbd8PAGIdzUBgx5XuVFfICWoJbdNJL8J2w) the resulting weights of `T5++` variants (`T5+resnet152`) trained on different settings. Unless specified aside, models are trained with the language modelling objective.
 | Pre-train | Fine-tune | Weights |
 |------|------|------|
-| `WIT` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EtULUlYp8vZHve-7r7HvyLsBw-T3sLm8YCrTeQ1hsK8Omg?e=GC73qD) |
-| `WIT+MNEM` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EgwpXGudCfFPmBQNjTmqLPsB0OvohKQveABAzdEHsgnqyg?e=2BkOF1) |
+| `WIT` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EtULUlYp8vZHve-7r7HvyLsBZv88xPAGV_cNTIYpGuJyJw?e=gtFgdn) |
+| `WIT+MNEM` |  | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EgwpXGudCfFPmBQNjTmqLPsB_t3Nq3ihSlqzHHbNhqa5fA?e=D7Cbqk) |
 | `WIT+T5` |  | [link]() |
 | `WIT+BERT` |  | [link]() |
-| `WIT+MNEM` | `WIT` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ejj2AluQC-tPjqHiF_g-TNwBAmfaVXeoL92t5kmXGQWs9w?e=Cgfjx2) |
-| `WIT` | `GoodNews` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EhZKCPND7tFOjceC9IvrsyoBx1zkFGNh8IjdNBWwh_0G2g?e=kXVMYX) |
-| `WIT` | `GoodNews+MNEM` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ep2W_2JeY2hNi19CvkkiPhcB2_zOzFP8apepGrE9HI0bwQ?e=bKD3KZ) |
+| `WIT+MNEM` | `WIT` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ejj2AluQC-tPjqHiF_g-TNwBoJznuGPiGpRhE-uDZjvuyw?e=2TXF1l) |
+| `WIT` | `GoodNews` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/EhZKCPND7tFOjceC9IvrsyoBWR-_2Fih25RxGlhs5xgZNg?e=AxSDzF) |
+| `WIT` | `GoodNews+MNEM` | [link](https://cvcuab-my.sharepoint.com/:f:/g/personal/knguyen_cvc_uab_cat/Ep2W_2JeY2hNi19CvkkiPhcBFGgyFM8QlYt1bc0Uwv9pdw?e=fXuduh) |
 
 ## Conclusion
 Thank you for your interest and sorry for the bugs!
